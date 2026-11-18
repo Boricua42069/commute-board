@@ -36,6 +36,7 @@
         --alert-bg: #8a3320;
         --ok: #34c759;
         --bad: #ff453a;
+        --j-brown: #996633;
         --lirr-blue: #0039a6;
       }
       * { box-sizing: border-box; }
@@ -109,6 +110,14 @@
       .alerts p + p { margin-top: 0.375rem; }
 
       /* Boards */
+      .group-label {
+        margin: 1.25rem 0 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: var(--dim);
+      }
+      .group-label:first-child { margin-top: 0; }
       .boards { display: flex; flex-direction: column; gap: 1rem; }
       .board {
         border: 1px solid var(--border);
@@ -123,6 +132,18 @@
         font-weight: 600;
       }
       .board-head h2 .dir { margin-left: 0.5rem; font-weight: 500; color: var(--dim); }
+      .bullet {
+        display: flex;
+        width: 1.5rem; height: 1.5rem;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9999px;
+        background: var(--j-brown);
+        color: #fff;
+        font-size: 0.875rem;
+        font-weight: 700;
+      }
       .lirr-chip {
         display: flex;
         flex-shrink: 0;
@@ -149,6 +170,7 @@
          hero row never wraps mid-phrase on narrow screens. */
       .next-sub { display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.125rem; }
       .next-sub .term { font-size: 1rem; color: var(--dim); }
+      .next-sub .ztag { font-size: 0.875rem; font-weight: 600; color: var(--dim); }
       .later { list-style: none; margin: 0.75rem 0 0; padding: 0; }
       .later li {
         display: flex;
@@ -160,6 +182,7 @@
       .later .mins { width: 4rem; flex-shrink: 0; font-size: 1rem; font-weight: 600; }
       .later .clock { font-size: 0.875rem; color: var(--dim); }
       .later .term { font-size: 0.875rem; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .later .ztag { font-size: 0.75rem; font-weight: 600; color: var(--dim); }
       .later li.gap-note {
         display: block;
         border-top: none;
@@ -209,20 +232,26 @@
 
       <section class="board error-box" id="errorBox" hidden>
         <h3>Couldn't load the boards</h3>
-        <p>The LIRR feed didn't answer. Check your connection and try again.</p>
+        <p>Neither train feed answered. Check your connection and try again.</p>
         <button type="button" id="retryBtn">Try again</button>
       </section>
 
       <div id="content" hidden>
         <div class="alerts" id="alertsBox" role="alert" hidden></div>
+        <p class="group-label">TO BALDWIN</p>
         <div class="boards">
-          <section class="board" id="boardOut" aria-label="Jamaica to Baldwin"></section>
-          <section class="board" id="boardBack" aria-label="Baldwin to New York"></section>
+          <section class="board" id="boardJOut" aria-label="J train at Marcy Avenue to Jamaica"></section>
+          <section class="board" id="boardLirrOut" aria-label="LIRR Jamaica to Baldwin"></section>
+        </div>
+        <p class="group-label">BACK TO THE CITY</p>
+        <div class="boards">
+          <section class="board" id="boardLirrBack" aria-label="LIRR Baldwin to New York"></section>
+          <section class="board" id="boardJBack" aria-label="J train at Sutphin Boulevard to Manhattan"></section>
         </div>
         <p class="footnote">
-          Live from the MTA LIRR GTFS-Realtime feed · refreshes every 30
-          seconds while open. In Safari: Share → Add to Home Screen keeps
-          it on your home screen like an app.
+          Live from the MTA GTFS-Realtime feeds (J/Z + LIRR) · refreshes
+          every 30 seconds while open. In Safari: Share → Add to Home
+          Screen keeps it on your home screen like an app.
         </p>
       </div>
     </main>
@@ -230,18 +259,36 @@
     <script>
       "use strict";
 
-      // ── MTA LIRR feed ──────────────────────────────────────────
-      // Public feed, sends Access-Control-Allow-Origin: *. Same
-      // multi-attempt loading as the J board (fetch, plain fetch, XHR).
+      // ── MTA feed endpoints ─────────────────────────────────────
+      // Public feeds, Access-Control-Allow-Origin: *. Loaded with the
+      // same multi-attempt chain as the J board (fetch, plain fetch,
+      // XHR, then a JSON mirror for the subway boards).
+      var JZ_FEED_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-jz";
       var LIRR_FEED_URL =
         "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/lirr%2Fgtfs-lirr";
-      var ALERTS_URL =
+      var J_ALERTS_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fsubway-alerts.json";
+      var LIRR_ALERTS_URL =
         "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Flirr-alerts.json";
+
+      var SN_STOP_URLS = {
+        M16: "https://api.subwaynow.app/stops/M16",
+        G06: "https://api.subwaynow.app/stops/G06"
+      };
 
       var MAX_TRAINS = 4;
       var JAMAICA = "102", BALDWIN = "225";
 
-      // Terminal / station names for the stops these trips can end at.
+      // Last stop of a J/Z trip → short destination label.
+      var TERMINALS = {
+        G05: "Jamaica Center",
+        G06: "Sutphin Blvd",
+        M23: "Broad St",
+        J27: "Broadway Jct"
+      };
+
+      // Terminal / station names for the stops LIRR trips can end at.
       var LIRR_NAMES = {
         "27": "Babylon", "102": "Jamaica", "118": "Long Island City",
         "90": "Hunterspoint Ave", "237": "Penn Station",
@@ -259,9 +306,18 @@
         "215": "Wantagh", "226": "Merrick"
       };
 
-      var BOARDS = [
-        { el: "boardOut", title: "Jamaica", dir: "→ Baldwin", from: JAMAICA, to: BALDWIN, arrLabel: "arr Baldwin" },
-        { el: "boardBack", title: "Baldwin", dir: "→ New York", from: BALDWIN, to: JAMAICA, arrLabel: "arr Jamaica" }
+      // Direction labels verified against the MTA's own platform
+      // mapping and live trains: on the J, N = Jamaica-bound,
+      // S = Broad St-bound. Marcy Av N platform is Jamaica-bound;
+      // Sutphin Blvd (the LIRR Jamaica transfer) S platform is
+      // Manhattan-bound.
+      var J_BOARDS = [
+        { el: "boardJOut", title: "Marcy Av", dir: "→ Jamaica", stop: "M16N", gapMin: 15 },
+        { el: "boardJBack", title: "Sutphin Blvd", dir: "→ Manhattan", stop: "G06S", gapMin: 15 }
+      ];
+      var LIRR_BOARDS = [
+        { el: "boardLirrOut", title: "Jamaica", dir: "→ Baldwin", from: JAMAICA, to: BALDWIN, arrLabel: "arr Baldwin", gapMin: 40 },
+        { el: "boardLirrBack", title: "Baldwin", dir: "→ New York", from: BALDWIN, to: JAMAICA, arrLabel: "arr Jamaica", gapMin: 40 }
       ];
 
       // ── minimal GTFS-Realtime protobuf decoder ───────────────
@@ -317,7 +373,150 @@
         return v instanceof Uint8Array ? v : null;
       }
 
-      // ── feed parsing ───────────────────────────────────────────
+      // ── subway feed parsing ────────────────────────────────────
+      function parseSubwayFeed(buf) {
+        var bytes = new Uint8Array(buf);
+        var out = { M16N: [], G06S: [] };
+        var feed = parseFields(bytes, 0, bytes.length);
+        for (var fi = 0; fi < feed.length; fi++) {
+          var entityBytes = asBytes(feed[fi].value);
+          if (feed[fi].num !== 2 || !entityBytes) continue; // FeedEntity
+          var entity = parseFields(entityBytes, 0, entityBytes.length);
+          for (var ei = 0; ei < entity.length; ei++) {
+            var tuBytes = asBytes(entity[ei].value);
+            if (entity[ei].num !== 3 || !tuBytes) continue; // TripUpdate
+            var tu = parseFields(tuBytes, 0, tuBytes.length);
+            var routeId = "";
+            var stus = [];
+            for (var ti = 0; ti < tu.length; ti++) {
+              var tfBytes = asBytes(tu[ti].value);
+              if (!tfBytes) continue;
+              if (tu[ti].num === 1) {
+                var trip = parseFields(tfBytes, 0, tfBytes.length);
+                for (var pi = 0; pi < trip.length; pi++) {
+                  var pfBytes = asBytes(trip[pi].value);
+                  if (trip[pi].num === 5 && pfBytes) routeId = ascii(pfBytes);
+                }
+              } else if (tu[ti].num === 2) {
+                stus.push(tfBytes); // StopTimeUpdate
+              }
+            }
+            if (routeId !== "J" && routeId !== "Z") continue;
+
+            var terminal = "";
+            var lastStu = stus[stus.length - 1];
+            if (lastStu) {
+              var last = parseFields(lastStu, 0, lastStu.length);
+              for (var li = 0; li < last.length; li++) {
+                var lfBytes = asBytes(last[li].value);
+                if (last[li].num === 4 && lfBytes) {
+                  var base = ascii(lfBytes).replace(/[NS]$/, "");
+                  terminal = TERMINALS[base] || "";
+                }
+              }
+            }
+
+            var times = {};
+            for (var si = 0; si < stus.length; si++) {
+              var stu = parseFields(stus[si], 0, stus[si].length);
+              var stopId = "", arr = null, dep = null;
+              for (var sfi = 0; sfi < stu.length; sfi++) {
+                var sfBytes = asBytes(stu[sfi].value);
+                if (stu[sfi].num === 4 && sfBytes) stopId = ascii(sfBytes);
+                if ((stu[sfi].num === 2 || stu[sfi].num === 3) && sfBytes) {
+                  var ev = parseFields(sfBytes, 0, sfBytes.length);
+                  for (var vi = 0; vi < ev.length; vi++) {
+                    if (ev[vi].num === 2 && typeof ev[vi].value === "number") {
+                      if (stu[sfi].num === 2) arr = ev[vi].value;
+                      else dep = ev[vi].value;
+                    }
+                  }
+                }
+              }
+              var t = dep !== null ? dep : arr;
+              if (t && stopId) times[stopId] = t;
+            }
+            for (var stopKey in times) {
+              if (Object.prototype.hasOwnProperty.call(out, stopKey)) {
+                out[stopKey].push({ route: routeId, time: times[stopKey], terminal: terminal });
+              }
+            }
+          }
+        }
+        for (var id in out) out[id] = finalizeTrains(out[id]);
+        return out;
+      }
+
+      function finalizeTrains(list) {
+        var nowSec = Date.now() / 1000;
+        var seen = {};
+        return list
+          .filter(function (x) { return x.time > nowSec - 30; })
+          .sort(function (a, b) { return a.time - b.time; })
+          .filter(function (x) {
+            if (seen[x.time]) return false;
+            seen[x.time] = true;
+            return true;
+          })
+          .slice(0, MAX_TRAINS);
+      }
+
+      // SubwayNow stop JSON → train list (mirror fallback for the
+      // subway boards). Marcy "north" is Jamaica-bound; Sutphin
+      // "south" is Broad St-bound. Keep J/Z only.
+      function parseSubwayNowStop(json, dir) {
+        var trips =
+          (json && json.upcoming_trips && json.upcoming_trips[dir]) || [];
+        var list = [];
+        for (var i = 0; i < trips.length; i++) {
+          var t = trips[i];
+          if (t.route_id !== "J" && t.route_id !== "Z") continue;
+          var time =
+            t.estimated_current_stop_arrival_time ||
+            t.current_stop_arrival_time;
+          if (!time) continue;
+          list.push({
+            route: t.route_id,
+            time: time,
+            terminal: TERMINALS[t.destination_stop] || ""
+          });
+        }
+        return finalizeTrains(list);
+      }
+
+      function loadJBoardsFromSubwayNow() {
+        return Promise.all([
+          plainFetch(SN_STOP_URLS.M16, 15000).then(function (r) { return r.json(); }),
+          plainFetch(SN_STOP_URLS.G06, 15000).then(function (r) { return r.json(); })
+        ]).then(function (stops) {
+          return {
+            M16N: parseSubwayNowStop(stops[0], "north"),
+            G06S: parseSubwayNowStop(stops[1], "south")
+          };
+        });
+      }
+
+      function loadJzBoards() {
+        function fromFetch() {
+          return fetchWithTimeout(JZ_FEED_URL, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parseSubwayFeed);
+        }
+        function fromPlainFetch() {
+          return plainFetch(JZ_FEED_URL, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parseSubwayFeed);
+        }
+        function fromXhr() {
+          return xhrArrayBuffer(JZ_FEED_URL, 15000).then(parseSubwayFeed);
+        }
+        return fromFetch()
+          .catch(fromPlainFetch)
+          .catch(fromXhr)
+          .catch(loadJBoardsFromSubwayNow);
+      }
+
+      // ── LIRR feed parsing ──────────────────────────────────────
       // LIRR quirk (verified against the feed): in a TripUpdate the
       // StopTimeUpdate is field 2, and the track rides in the MTA
       // extension field 1005, sub-field 1.
@@ -388,17 +587,24 @@
             track: from.track
           });
         }
-        var nowSec = Date.now() / 1000;
-        var seen = {};
-        return out
-          .filter(function (x) { return x.time > nowSec - 30; })
-          .sort(function (a, b) { return a.time - b.time; })
-          .filter(function (x) {
-            if (seen[x.time]) return false;
-            seen[x.time] = true;
-            return true;
-          })
-          .slice(0, MAX_TRAINS);
+        return finalizeTrains(out);
+      }
+
+      function loadLirrTrips() {
+        function fromFetch() {
+          return fetchWithTimeout(LIRR_FEED_URL, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parseLirrFeed);
+        }
+        function fromPlainFetch() {
+          return plainFetch(LIRR_FEED_URL, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parseLirrFeed);
+        }
+        function fromXhr() {
+          return xhrArrayBuffer(LIRR_FEED_URL, 15000).then(parseLirrFeed);
+        }
+        return fromFetch().catch(fromPlainFetch).catch(fromXhr);
       }
 
       // ── alerts ─────────────────────────────────────────────────
@@ -406,45 +612,84 @@
         return s.replace(/\[([A-Z0-9]+)\]/g, "$1").replace(/\s+/g, " ").trim();
       }
 
-      function parseAlerts(data) {
+      function alertHeader(a) {
+        var translations = (a.header_text && a.header_text.translation) || [];
+        for (var k = 0; k < translations.length; k++) {
+          if (translations[k].language === "en") {
+            return translations[k].text ? cleanAlertText(translations[k].text) : "";
+          }
+        }
+        return "";
+      }
+
+      function alertActive(a, now) {
+        var periods = a.active_period || [];
+        return (
+          periods.length === 0 ||
+          periods.some(function (p) {
+            return (p.start || 0) <= now && now <= (p.end || 9999999999);
+          })
+        );
+      }
+
+      function parseJAlerts(data) {
         var now = Date.now() / 1000;
         var out = [];
         var entities = (data && data.entity) || [];
         for (var i = 0; i < entities.length; i++) {
           var a = entities[i].alert;
-          if (!a) continue;
+          if (!a || !alertActive(a, now)) continue;
+          var ies = a.informed_entity || [];
+          var routes = {}, stops = {}, hasStop = false;
+          for (var j = 0; j < ies.length; j++) {
+            if (ies[j].route_id) routes[ies[j].route_id] = true;
+            if (ies[j].stop_id) { stops[ies[j].stop_id] = true; hasStop = true; }
+          }
+          if (!routes.J && !routes.Z) continue;
+          if (hasStop && !stops.M16 && !stops.G06) continue;
+          var header = alertHeader(a);
+          if (header && out.indexOf(header) === -1) out.push(header);
+        }
+        return out;
+      }
+
+      function parseLirrAlerts(data) {
+        var now = Date.now() / 1000;
+        var out = [];
+        var entities = (data && data.entity) || [];
+        for (var i = 0; i < entities.length; i++) {
+          var a = entities[i].alert;
+          if (!a || !alertActive(a, now)) continue;
           var ies = a.informed_entity || [];
           var routes = {}, stops = {}, hasStop = false, hasRoute = false;
           for (var j = 0; j < ies.length; j++) {
             if (ies[j].route_id) { routes[ies[j].route_id] = true; hasRoute = true; }
             if (ies[j].stop_id) { stops[ies[j].stop_id] = true; hasStop = true; }
           }
-          var periods = a.active_period || [];
-          var active =
-            periods.length === 0 ||
-            periods.some(function (p) {
-              return (p.start || 0) <= now && now <= (p.end || 9999999999);
-            });
-          if (!active) continue;
-          // Relevant: touches Jamaica or Baldwin, is Babylon-branch,
-          // or is system-wide (no stops and no routes named).
           var babylon = false;
           for (var r in routes) if (/babylon/i.test(r)) babylon = true;
           var relevant =
             stops[JAMAICA] || stops[BALDWIN] || babylon || (!hasStop && !hasRoute);
           if (!relevant) continue;
-          var translations = (a.header_text && a.header_text.translation) || [];
-          var en = null;
-          for (var k = 0; k < translations.length; k++) {
-            if (translations[k].language === "en") { en = translations[k]; break; }
-          }
-          var header = en && en.text ? cleanAlertText(en.text) : "";
+          var header = alertHeader(a);
           if (header && out.indexOf(header) === -1) out.push(header);
         }
-        return out.slice(0, 2);
+        return out;
       }
 
-      // ── fetching ───────────────────────────────────────────────
+      function loadAlertsFrom(url, parseFn) {
+        return fetchWithTimeout(url, 15000)
+          .then(function (res) { return res.json(); })
+          .then(parseFn)
+          .catch(function () {
+            return plainFetch(url, 15000)
+              .then(function (res) { return res.json(); })
+              .then(parseFn);
+          })
+          .catch(function () { return null; });
+      }
+
+      // ── fetching helpers ───────────────────────────────────────
       function fetchWithTimeout(url, ms) {
         var ctrl = new AbortController();
         var timer = setTimeout(function () { ctrl.abort(); }, ms);
@@ -497,35 +742,6 @@
         });
       }
 
-      function loadTrips() {
-        function fromFetch() {
-          return fetchWithTimeout(LIRR_FEED_URL, 15000)
-            .then(function (res) { return res.arrayBuffer(); })
-            .then(parseLirrFeed);
-        }
-        function fromPlainFetch() {
-          return plainFetch(LIRR_FEED_URL, 15000)
-            .then(function (res) { return res.arrayBuffer(); })
-            .then(parseLirrFeed);
-        }
-        function fromXhr() {
-          return xhrArrayBuffer(LIRR_FEED_URL, 15000).then(parseLirrFeed);
-        }
-        return fromFetch().catch(fromPlainFetch).catch(fromXhr);
-      }
-
-      function loadAlerts() {
-        return fetchWithTimeout(ALERTS_URL, 15000)
-          .then(function (res) { return res.json(); })
-          .then(parseAlerts)
-          .catch(function () {
-            return plainFetch(ALERTS_URL, 15000)
-              .then(function (res) { return res.json(); })
-              .then(parseAlerts);
-          })
-          .catch(function () { return null; });
-      }
-
       // ── rendering ──────────────────────────────────────────────
       var clockFmt = new Intl.DateTimeFormat("en-US", {
         hour: "numeric", minute: "2-digit", timeZone: "America/New_York"
@@ -558,8 +774,6 @@
         return minsLabel(epochSec, nowMs);
       }
 
-      var GAP_MIN = 40; // LIRR runs ~30-min headways; flag a longer wait
-
       function el(tag, cls, text) {
         var node = document.createElement(tag);
         if (cls) node.className = cls;
@@ -567,25 +781,22 @@
         return node;
       }
 
-      function subText(board, t) {
-        var parts = [];
-        if (!t.destIsTo) parts.push("to " + t.dest);
-        if (t.arrTo) parts.push(board.arrLabel + " " + clock(t.arrTo));
-        if (t.track) parts.push("Track " + t.track);
-        return parts.join(" · ");
+      function gapAfter(trains, idx, gapMin) {
+        if (idx + 1 >= trains.length) return 0;
+        var g = Math.round((trains[idx + 1].time - trains[idx].time) / 60);
+        return g >= gapMin ? g : 0;
       }
 
-      function renderBoard(board, trains, error, nowMs) {
+      // Shared board shell: header, hero countdown, later rows, and
+      // gap warnings. subText(t) builds the per-train detail line.
+      function renderBoardShell(board, trains, error, nowMs, headNode, subText) {
         var root = document.getElementById(board.el);
         root.innerHTML = "";
 
         var head = el("div", "board-head");
-        var chip = el("span", "lirr-chip", "LIRR");
-        chip.setAttribute("aria-hidden", "true");
+        head.appendChild(headNode);
         var h2 = el("h2", null, board.title);
-        var dir = el("span", "dir", board.dir);
-        h2.appendChild(dir);
-        head.appendChild(chip);
+        h2.appendChild(el("span", "dir", board.dir));
         head.appendChild(h2);
         root.appendChild(head);
 
@@ -606,20 +817,15 @@
         next.appendChild(mins);
         next.appendChild(el("span", "clock mono", clock(first.time)));
         root.appendChild(next);
-        var firstSub = subText(board, first);
-        if (firstSub) {
+        var firstSub = subText(first);
+        if (firstSub.text || firstSub.ztag) {
           var sub = el("div", "next-sub");
-          sub.appendChild(el("span", "term", firstSub));
+          if (firstSub.text) sub.appendChild(el("span", "term", firstSub.text));
+          if (firstSub.ztag) sub.appendChild(el("span", "ztag", firstSub.ztag));
           root.appendChild(sub);
         }
 
-        // Flag a long wait after any train, including the next one.
-        function gapAfter(idx) {
-          if (idx + 1 >= trains.length) return 0;
-          var g = Math.round((trains[idx + 1].time - trains[idx].time) / 60);
-          return g >= GAP_MIN ? g : 0;
-        }
-        var gap0 = gapAfter(0);
+        var gap0 = gapAfter(trains, 0, board.gapMin);
         if (gap0) {
           root.appendChild(el("p", "gap-note-standalone",
             "⚠ Then a " + gap0 + " min gap — don't miss this one"));
@@ -634,10 +840,11 @@
             rowMins.dataset.time = t.time;
             li.appendChild(rowMins);
             li.appendChild(el("span", "clock", clock(t.time)));
-            var rowSub = subText(board, t);
-            if (rowSub) li.appendChild(el("span", "term", rowSub));
+            var rowSub = subText(t);
+            if (rowSub.text) li.appendChild(el("span", "term", rowSub.text));
+            if (rowSub.ztag) li.appendChild(el("span", "ztag", rowSub.ztag));
             ul.appendChild(li);
-            var g = gapAfter(i);
+            var g = gapAfter(trains, i, board.gapMin);
             if (g) {
               ul.appendChild(el("li", "gap-note",
                 "⚠ Then a " + g + " min gap — don't miss this one"));
@@ -645,6 +852,30 @@
           }
           root.appendChild(ul);
         }
+      }
+
+      function renderJBoard(board, trains, error, nowMs) {
+        var bullet = el("span", "bullet",
+          trains.length && trains[0].route ? trains[0].route : "J");
+        bullet.setAttribute("aria-hidden", "true");
+        renderBoardShell(board, trains, error, nowMs, bullet, function (t) {
+          return {
+            text: t.terminal ? "to " + t.terminal : "",
+            ztag: t.route === "Z" ? "Z train" : ""
+          };
+        });
+      }
+
+      function renderLirrBoard(board, trains, error, nowMs) {
+        var chip = el("span", "lirr-chip", "LIRR");
+        chip.setAttribute("aria-hidden", "true");
+        renderBoardShell(board, trains, error, nowMs, chip, function (t) {
+          var parts = [];
+          if (!t.destIsTo) parts.push("to " + t.dest);
+          if (t.arrTo) parts.push(board.arrLabel + " " + clock(t.arrTo));
+          if (t.track) parts.push("Track " + t.track);
+          return { text: parts.join(" · "), ztag: "" };
+        });
       }
 
       // Per-second countdown tick: update only the countdown labels,
@@ -663,11 +894,12 @@
 
       // ── state + refresh loop ───────────────────────────────────
       var state = {
-        data: null,       // { out: [], back: [], alerts: [] }
-        feedError: null,
+        data: null,       // { jOut, lirrOut, lirrBack, jBack, alerts }
+        jzError: null,
+        lirrError: null,
         fetchedAt: 0,
         fetching: false,
-        failed: false     // last load failed with nothing to show
+        failed: false     // both feeds failed with nothing to show
       };
 
       var statusDot = document.getElementById("statusDot");
@@ -701,9 +933,10 @@
         loadingMsg.hidden = true;
         errorBox.hidden = true;
         content.hidden = false;
-        statusDot.className = "dot " + (state.feedError ? "bad" : "ok");
-        statusText.textContent = state.feedError
-          ? "Feed unavailable — showing last times from " + stampFmt.format(new Date(state.fetchedAt))
+        var anyError = state.jzError || state.lirrError;
+        statusDot.className = "dot " + (anyError ? "bad" : "ok");
+        statusText.textContent = anyError
+          ? "A feed is unavailable — showing last times from " + stampFmt.format(new Date(state.fetchedAt))
           : "Updated " + stampFmt.format(new Date(state.fetchedAt));
 
         var alerts = state.data.alerts || [];
@@ -717,8 +950,10 @@
           alertsBox.hidden = true;
         }
 
-        renderBoard(BOARDS[0], state.data.out, state.feedError, nowMs);
-        renderBoard(BOARDS[1], state.data.back, state.feedError, nowMs);
+        renderJBoard(J_BOARDS[0], state.data.jOut, state.jzError, nowMs);
+        renderLirrBoard(LIRR_BOARDS[0], state.data.lirrOut, state.lirrError, nowMs);
+        renderLirrBoard(LIRR_BOARDS[1], state.data.lirrBack, state.lirrError, nowMs);
+        renderJBoard(J_BOARDS[1], state.data.jBack, state.jzError, nowMs);
       }
 
       function load() {
@@ -727,31 +962,50 @@
         refreshBtn.disabled = true;
         refreshBtn.textContent = "Refreshing…";
 
-        var tripsDone = loadTrips()
+        var jzDone = loadJzBoards()
+          .then(function (boards) { return { ok: true, boards: boards }; })
+          .catch(function () { return { ok: false, boards: null }; });
+        var lirrDone = loadLirrTrips()
           .then(function (trips) { return { ok: true, trips: trips }; })
           .catch(function () { return { ok: false, trips: null }; });
+        var jAlertsDone = loadAlertsFrom(J_ALERTS_URL, parseJAlerts);
+        var lirrAlertsDone = loadAlertsFrom(LIRR_ALERTS_URL, parseLirrAlerts);
 
-        var alertsDone = loadAlerts();
-
-        Promise.all([tripsDone, alertsDone]).then(function (results) {
-          var res = results[0];
-          var alerts = results[1];
+        Promise.all([jzDone, lirrDone, jAlertsDone, lirrAlertsDone]).then(function (results) {
+          var jz = results[0], lirr = results[1];
           state.fetching = false;
           refreshBtn.disabled = false;
           refreshBtn.textContent = "Refresh";
 
-          if (res.ok) {
+          // Merge alerts from both systems, deduped, capped.
+          var alerts = null;
+          if (results[2] || results[3]) {
+            alerts = [];
+            var pools = [results[2] || [], results[3] || []];
+            for (var p = 0; p < pools.length; p++) {
+              for (var q = 0; q < pools[p].length; q++) {
+                if (alerts.indexOf(pools[p][q]) === -1) alerts.push(pools[p][q]);
+              }
+            }
+            alerts = alerts.slice(0, 3);
+          }
+
+          if (jz.ok || lirr.ok) {
+            var prev = state.data || { jOut: [], lirrOut: [], lirrBack: [], jBack: [], alerts: [] };
             state.data = {
-              out: boardTrains(res.trips, JAMAICA, BALDWIN),
-              back: boardTrains(res.trips, BALDWIN, JAMAICA),
-              alerts: alerts || (state.data ? state.data.alerts : [])
+              jOut: jz.ok ? (jz.boards.M16N || []) : prev.jOut,
+              jBack: jz.ok ? (jz.boards.G06S || []) : prev.jBack,
+              lirrOut: lirr.ok ? boardTrains(lirr.trips, JAMAICA, BALDWIN) : prev.lirrOut,
+              lirrBack: lirr.ok ? boardTrains(lirr.trips, BALDWIN, JAMAICA) : prev.lirrBack,
+              alerts: alerts !== null ? alerts : prev.alerts
             };
-            state.feedError = null;
+            state.jzError = jz.ok ? null : "Couldn't reach the subway feed.";
+            state.lirrError = lirr.ok ? null : "Couldn't reach the LIRR feed.";
             state.fetchedAt = Date.now();
             state.failed = false;
           } else if (state.data) {
-            // Keep the last good board on screen, flagged as stale.
-            state.feedError = "Couldn't reach the LIRR feed.";
+            state.jzError = "Couldn't reach the subway feed.";
+            state.lirrError = "Couldn't reach the LIRR feed.";
           } else {
             state.failed = true;
           }
