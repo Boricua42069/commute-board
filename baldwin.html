@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0c0c0d" />
+    <link rel="apple-touch-icon" sizes="180x180" href="baldwin-apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="baldwin-icon-512.png" />
+    <!-- Lets the page run full-screen when added to the iPhone home screen from Safari. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Baldwin Board" />
+    <!-- Empty inline icon: stops the browser fetching /favicon.ico. -->
+    <link rel="icon" href="data:," />
+    <title>Baldwin Board</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Departure-board theme: a station board is black in either system
+         mode, so the palette is fixed rather than following
+         prefers-color-scheme. */
+      :root {
+        color-scheme: dark;
+        --bg: #0c0c0d;
+        --surface: #17181a;
+        --text: #f2f0eb;
+        --dim: #9a978e;
+        --border: #2a2b2f;
+        --accent: #ffb340;
+        --alert-bg: #8a3320;
+        --ok: #34c759;
+        --bad: #ff453a;
+        --lirr-blue: #0039a6;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      main {
+        margin: 0 auto;
+        width: 100%;
+        max-width: 42rem;
+        padding: 0 1rem 2rem;
+      }
+      .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace; }
+
+      /* Status row */
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 1rem 0;
+      }
+      .status-line {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--dim);
+        margin: 0;
+      }
+      .dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--dim); flex-shrink: 0; }
+      .dot.ok { background: var(--ok); }
+      .dot.bad { background: var(--bad); }
+      button {
+        min-height: 2.25rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-size: 0.875rem;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        border-radius: 6px;
+        -webkit-tap-highlight-color: transparent;
+      }
+      button:disabled { opacity: 0.5; }
+      button:active { background: #232428; }
+
+      /* Alert banner */
+      .alerts {
+        border: 1px solid var(--alert-bg);
+        background: var(--alert-bg);
+        padding: 0.875rem;
+        border-radius: 6px;
+        margin-bottom: 1rem;
+      }
+      .alerts p {
+        margin: 0;
+        font-size: 0.875rem;
+        font-weight: 600;
+        line-height: 1.35;
+        color: #fff;
+      }
+      .alerts p + p { margin-top: 0.375rem; }
+
+      /* Boards */
+      .boards { display: flex; flex-direction: column; gap: 1rem; }
+      .board {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        padding: 1rem;
+        border-radius: 6px;
+      }
+      .board-head { display: flex; align-items: center; gap: 0.625rem; }
+      .board-head h2 {
+        margin: 0;
+        font-size: 1.125rem;
+        font-weight: 600;
+      }
+      .board-head h2 .dir { margin-left: 0.5rem; font-weight: 500; color: var(--dim); }
+      .lirr-chip {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        background: var(--lirr-blue);
+        color: #fff;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 0.3125rem 0.4375rem;
+      }
+      .next {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.25rem 0.75rem;
+        margin-top: 0.75rem;
+      }
+      .next .mins { font-size: 3rem; font-weight: 600; line-height: 1.05; color: var(--accent); }
+      .next .clock { font-size: 1.25rem; }
+      /* Destination sits on its own line under the countdown, so the
+         hero row never wraps mid-phrase on narrow screens. */
+      .next-sub { display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.125rem; }
+      .next-sub .term { font-size: 1rem; color: var(--dim); }
+      .later { list-style: none; margin: 0.75rem 0 0; padding: 0; }
+      .later li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        padding: 0.5rem 0;
+        border-top: 1px solid var(--border);
+      }
+      .later .mins { width: 4rem; flex-shrink: 0; font-size: 1rem; font-weight: 600; }
+      .later .clock { font-size: 0.875rem; color: var(--dim); }
+      .later .term { font-size: 0.875rem; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .later li.gap-note {
+        display: block;
+        border-top: none;
+        padding: 0.125rem 0 0.375rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .gap-note-standalone {
+        margin: 0.375rem 0 0;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .board-msg { padding: 0.5rem 0; font-size: 0.875rem; color: var(--dim); margin: 0; }
+
+      .footnote {
+        padding: 0.25rem 0.25rem 0;
+        font-size: 0.75rem;
+        line-height: 1.5;
+        color: var(--dim);
+        margin: 1rem 0 0;
+      }
+      .center-msg { padding: 4rem 0; text-align: center; font-size: 0.875rem; color: var(--dim); }
+      .error-box h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+      .error-box p { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--dim); }
+      .error-box button {
+        margin-top: 0.75rem;
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #000;
+      }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="status-row">
+        <p class="status-line mono">
+          <span class="dot" id="statusDot" aria-hidden="true"></span>
+          <span id="statusText">Loading live times…</span>
+        </p>
+        <button type="button" id="refreshBtn" aria-label="Refresh train times">Refresh</button>
+      </div>
+
+      <p class="center-msg mono" id="loadingMsg">Reaching the MTA feeds…</p>
+
+      <section class="board error-box" id="errorBox" hidden>
+        <h3>Couldn't load the boards</h3>
+        <p>The LIRR feed didn't answer. Check your connection and try again.</p>
+        <button type="button" id="retryBtn">Try again</button>
+      </section>
+
+      <div id="content" hidden>
+        <div class="alerts" id="alertsBox" role="alert" hidden></div>
+        <div class="boards">
+          <section class="board" id="boardOut" aria-label="Jamaica to Baldwin"></section>
+          <section class="board" id="boardBack" aria-label="Baldwin to New York"></section>
+        </div>
+        <p class="footnote">
+          Live from the MTA LIRR GTFS-Realtime feed · refreshes every 30
+          seconds while open. In Safari: Share → Add to Home Screen keeps
+          it on your home screen like an app.
+        </p>
+      </div>
+    </main>
+
+    <script>
+      "use strict";
+
+      // ── MTA LIRR feed ──────────────────────────────────────────
+      // Public feed, sends Access-Control-Allow-Origin: *. Same
+      // multi-attempt loading as the J board (fetch, plain fetch, XHR).
+      var LIRR_FEED_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/lirr%2Fgtfs-lirr";
+      var ALERTS_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Flirr-alerts.json";
+
+      var MAX_TRAINS = 4;
+      var JAMAICA = "102", BALDWIN = "225";
+
+      // Terminal / station names for the stops these trips can end at.
+      var LIRR_NAMES = {
+        "27": "Babylon", "102": "Jamaica", "118": "Long Island City",
+        "90": "Hunterspoint Ave", "237": "Penn Station",
+        "241": "Atlantic Terminal", "349": "Grand Central",
+        "141": "Montauk", "198": "Speonk", "163": "Patchogue",
+        "225": "Baldwin", "65": "Far Rockaway", "113": "Long Beach",
+        "84": "Hempstead", "179": "Ronkonkoma", "171": "Port Washington",
+        "154": "Oyster Bay", "24": "Belmont Park",
+        "8": "Amityville", "16": "Bellmore", "26": "Bay Shore",
+        "38": "Copiague", "59": "Farmingdale", "64": "Freeport",
+        "92": "Hicksville", "100": "Islip", "117": "Lindenhurst",
+        "125": "Lynbrook", "135": "Massapequa Park", "136": "Massapequa",
+        "142": "Malverne", "157": "Oakdale", "183": "Rockville Centre",
+        "187": "Seaford", "204": "Sayville", "211": "Valley Stream",
+        "215": "Wantagh", "226": "Merrick"
+      };
+
+      var BOARDS = [
+        { el: "boardOut", title: "Jamaica", dir: "→ Baldwin", from: JAMAICA, to: BALDWIN, arrLabel: "arr Baldwin" },
+        { el: "boardBack", title: "Baldwin", dir: "→ New York", from: BALDWIN, to: JAMAICA, arrLabel: "arr Jamaica" }
+      ];
+
+      // ── minimal GTFS-Realtime protobuf decoder ───────────────
+      function readVarint(bytes, pos) {
+        var result = 0, shift = 0;
+        while (pos < bytes.length) {
+          var b = bytes[pos] || 0;
+          pos += 1;
+          result += (b & 0x7f) * Math.pow(2, shift);
+          shift += 7;
+          if (!(b & 0x80)) break;
+        }
+        return [result, pos];
+      }
+
+      function parseFields(bytes, start, end) {
+        var fields = [];
+        var pos = start;
+        while (pos < end) {
+          var tag = readVarint(bytes, pos);
+          pos = tag[1];
+          var num = Math.floor(tag[0] / 8);
+          var wire = tag[0] % 8;
+          if (wire === 0) {
+            var v = readVarint(bytes, pos);
+            pos = v[1];
+            fields.push({ num: num, wire: wire, value: v[0] });
+          } else if (wire === 2) {
+            var len = readVarint(bytes, pos);
+            pos = len[1];
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + len[0]) });
+            pos += len[0];
+          } else if (wire === 1) {
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + 8) });
+            pos += 8;
+          } else if (wire === 5) {
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + 4) });
+            pos += 4;
+          } else {
+            break;
+          }
+        }
+        return fields;
+      }
+
+      function ascii(bytes) {
+        var s = "";
+        for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i] || 0);
+        return s;
+      }
+
+      function asBytes(v) {
+        return v instanceof Uint8Array ? v : null;
+      }
+
+      // ── feed parsing ───────────────────────────────────────────
+      // LIRR quirk (verified against the feed): in a TripUpdate the
+      // StopTimeUpdate is field 2, and the track rides in the MTA
+      // extension field 1005, sub-field 1.
+      function parseLirrFeed(buf) {
+        var bytes = new Uint8Array(buf);
+        var trips = [];
+        var feed = parseFields(bytes, 0, bytes.length);
+        for (var fi = 0; fi < feed.length; fi++) {
+          var entityBytes = asBytes(feed[fi].value);
+          if (feed[fi].num !== 2 || !entityBytes) continue; // FeedEntity
+          var entity = parseFields(entityBytes, 0, entityBytes.length);
+          for (var ei = 0; ei < entity.length; ei++) {
+            var tuBytes = asBytes(entity[ei].value);
+            if (entity[ei].num !== 3 || !tuBytes) continue; // TripUpdate
+            var tu = parseFields(tuBytes, 0, tuBytes.length);
+            var stops = [];
+            for (var ti = 0; ti < tu.length; ti++) {
+              var stuBytes = asBytes(tu[ti].value);
+              if (tu[ti].num !== 2 || !stuBytes) continue; // StopTimeUpdate
+              var stu = parseFields(stuBytes, 0, stuBytes.length);
+              var stopId = "", arr = null, dep = null, track = "";
+              for (var si = 0; si < stu.length; si++) {
+                var sfBytes = asBytes(stu[si].value);
+                if (!sfBytes) continue;
+                if (stu[si].num === 4) stopId = ascii(sfBytes);
+                if (stu[si].num === 2 || stu[si].num === 3) {
+                  var ev = parseFields(sfBytes, 0, sfBytes.length);
+                  for (var vi = 0; vi < ev.length; vi++) {
+                    if (ev[vi].num === 2 && typeof ev[vi].value === "number") {
+                      if (stu[si].num === 2) arr = ev[vi].value;
+                      else dep = ev[vi].value;
+                    }
+                  }
+                }
+                if (stu[si].num === 1005) { // MTA extension: track
+                  var ext = parseFields(sfBytes, 0, sfBytes.length);
+                  for (var xi = 0; xi < ext.length; xi++) {
+                    var xfBytes = asBytes(ext[xi].value);
+                    if (ext[xi].num === 1 && xfBytes) track = ascii(xfBytes);
+                  }
+                }
+              }
+              stops.push({ stopId: stopId, arr: arr, dep: dep, track: track });
+            }
+            if (stops.length) trips.push(stops);
+          }
+        }
+        return trips;
+      }
+
+      // Trains departing `fromId` that later stop at `toId`.
+      function boardTrains(trips, fromId, toId) {
+        var out = [];
+        for (var i = 0; i < trips.length; i++) {
+          var stops = trips[i];
+          var ids = stops.map(function (s) { return s.stopId; });
+          var fi = ids.indexOf(fromId), ti = ids.indexOf(toId);
+          if (fi === -1 || ti === -1 || fi > ti) continue;
+          var from = stops[fi], to = stops[ti];
+          var depT = from.dep !== null ? from.dep : from.arr;
+          if (!depT) continue;
+          var lastId = ids[ids.length - 1];
+          out.push({
+            time: depT,
+            arrTo: to.arr !== null ? to.arr : to.dep,
+            dest: LIRR_NAMES[lastId] || ("Stop " + lastId),
+            destIsTo: lastId === toId,
+            track: from.track
+          });
+        }
+        var nowSec = Date.now() / 1000;
+        var seen = {};
+        return out
+          .filter(function (x) { return x.time > nowSec - 30; })
+          .sort(function (a, b) { return a.time - b.time; })
+          .filter(function (x) {
+            if (seen[x.time]) return false;
+            seen[x.time] = true;
+            return true;
+          })
+          .slice(0, MAX_TRAINS);
+      }
+
+      // ── alerts ─────────────────────────────────────────────────
+      function cleanAlertText(s) {
+        return s.replace(/\[([A-Z0-9]+)\]/g, "$1").replace(/\s+/g, " ").trim();
+      }
+
+      function parseAlerts(data) {
+        var now = Date.now() / 1000;
+        var out = [];
+        var entities = (data && data.entity) || [];
+        for (var i = 0; i < entities.length; i++) {
+          var a = entities[i].alert;
+          if (!a) continue;
+          var ies = a.informed_entity || [];
+          var routes = {}, stops = {}, hasStop = false, hasRoute = false;
+          for (var j = 0; j < ies.length; j++) {
+            if (ies[j].route_id) { routes[ies[j].route_id] = true; hasRoute = true; }
+            if (ies[j].stop_id) { stops[ies[j].stop_id] = true; hasStop = true; }
+          }
+          var periods = a.active_period || [];
+          var active =
+            periods.length === 0 ||
+            periods.some(function (p) {
+              return (p.start || 0) <= now && now <= (p.end || 9999999999);
+            });
+          if (!active) continue;
+          // Relevant: touches Jamaica or Baldwin, is Babylon-branch,
+          // or is system-wide (no stops and no routes named).
+          var babylon = false;
+          for (var r in routes) if (/babylon/i.test(r)) babylon = true;
+          var relevant =
+            stops[JAMAICA] || stops[BALDWIN] || babylon || (!hasStop && !hasRoute);
+          if (!relevant) continue;
+          var translations = (a.header_text && a.header_text.translation) || [];
+          var en = null;
+          for (var k = 0; k < translations.length; k++) {
+            if (translations[k].language === "en") { en = translations[k]; break; }
+          }
+          var header = en && en.text ? cleanAlertText(en.text) : "";
+          if (header && out.indexOf(header) === -1) out.push(header);
+        }
+        return out.slice(0, 2);
+      }
+
+      // ── fetching ───────────────────────────────────────────────
+      function fetchWithTimeout(url, ms) {
+        var ctrl = new AbortController();
+        var timer = setTimeout(function () { ctrl.abort(); }, ms);
+        return fetch(url, { signal: ctrl.signal, cache: "no-store" }).then(
+          function (res) {
+            clearTimeout(timer);
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res;
+          },
+          function (err) {
+            clearTimeout(timer);
+            throw err;
+          }
+        );
+      }
+
+      function withBuster(url) {
+        return url + (url.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now();
+      }
+
+      function plainFetch(url, ms) {
+        var timedOut = new Promise(function (_, reject) {
+          setTimeout(function () { reject(new Error("timeout")); }, ms);
+        });
+        return Promise.race([
+          fetch(withBuster(url)).then(function (res) {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res;
+          }),
+          timedOut
+        ]);
+      }
+
+      function xhrArrayBuffer(url, ms) {
+        return new Promise(function (resolve, reject) {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", withBuster(url), true);
+          xhr.responseType = "arraybuffer";
+          xhr.timeout = ms;
+          xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
+              resolve(xhr.response);
+            } else {
+              reject(new Error("HTTP " + xhr.status));
+            }
+          };
+          xhr.onerror = function () { reject(new Error("XHR failed")); };
+          xhr.ontimeout = function () { reject(new Error("XHR timeout")); };
+          xhr.send();
+        });
+      }
+
+      function loadTrips() {
+        function fromFetch() {
+          return fetchWithTimeout(LIRR_FEED_URL, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parseLirrFeed);
+        }
+        function fromPlainFetch() {
+          return plainFetch(LIRR_FEED_URL, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parseLirrFeed);
+        }
+        function fromXhr() {
+          return xhrArrayBuffer(LIRR_FEED_URL, 15000).then(parseLirrFeed);
+        }
+        return fromFetch().catch(fromPlainFetch).catch(fromXhr);
+      }
+
+      function loadAlerts() {
+        return fetchWithTimeout(ALERTS_URL, 15000)
+          .then(function (res) { return res.json(); })
+          .then(parseAlerts)
+          .catch(function () {
+            return plainFetch(ALERTS_URL, 15000)
+              .then(function (res) { return res.json(); })
+              .then(parseAlerts);
+          })
+          .catch(function () { return null; });
+      }
+
+      // ── rendering ──────────────────────────────────────────────
+      var clockFmt = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric", minute: "2-digit", timeZone: "America/New_York"
+      });
+      var stampFmt = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York"
+      });
+
+      function clock(epochSec) {
+        return clockFmt.format(new Date(epochSec * 1000));
+      }
+
+      function minsLabel(epochSec, nowMs) {
+        var m = Math.round((epochSec * 1000 - nowMs) / 60000);
+        if (m <= 0) return "Now";
+        if (m === 1) return "1 min";
+        return m + " min";
+      }
+
+      // Hero countdown for the next train: under 2 minutes it ticks in
+      // m:ss so the wait feels live; above that it matches the rows.
+      function heroLabel(epochSec, nowMs) {
+        var sec = Math.round((epochSec * 1000 - nowMs) / 1000);
+        if (sec <= 0) return "Now";
+        if (sec < 120) {
+          var m = Math.floor(sec / 60);
+          var s = sec % 60;
+          return m + ":" + (s < 10 ? "0" : "") + s;
+        }
+        return minsLabel(epochSec, nowMs);
+      }
+
+      var GAP_MIN = 40; // LIRR runs ~30-min headways; flag a longer wait
+
+      function el(tag, cls, text) {
+        var node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function subText(board, t) {
+        var parts = [];
+        if (!t.destIsTo) parts.push("to " + t.dest);
+        if (t.arrTo) parts.push(board.arrLabel + " " + clock(t.arrTo));
+        if (t.track) parts.push("Track " + t.track);
+        return parts.join(" · ");
+      }
+
+      function renderBoard(board, trains, error, nowMs) {
+        var root = document.getElementById(board.el);
+        root.innerHTML = "";
+
+        var head = el("div", "board-head");
+        var chip = el("span", "lirr-chip", "LIRR");
+        chip.setAttribute("aria-hidden", "true");
+        var h2 = el("h2", null, board.title);
+        var dir = el("span", "dir", board.dir);
+        h2.appendChild(dir);
+        head.appendChild(chip);
+        head.appendChild(h2);
+        root.appendChild(head);
+
+        if (error) {
+          root.appendChild(el("p", "board-msg", error));
+          return;
+        }
+        if (!trains.length) {
+          root.appendChild(el("p", "board-msg", "No trains scheduled"));
+          return;
+        }
+
+        var first = trains[0];
+        var next = el("div", "next");
+        var mins = el("span", "mins mono", heroLabel(first.time, nowMs));
+        mins.dataset.time = first.time;
+        mins.dataset.hero = "1";
+        next.appendChild(mins);
+        next.appendChild(el("span", "clock mono", clock(first.time)));
+        root.appendChild(next);
+        var firstSub = subText(board, first);
+        if (firstSub) {
+          var sub = el("div", "next-sub");
+          sub.appendChild(el("span", "term", firstSub));
+          root.appendChild(sub);
+        }
+
+        // Flag a long wait after any train, including the next one.
+        function gapAfter(idx) {
+          if (idx + 1 >= trains.length) return 0;
+          var g = Math.round((trains[idx + 1].time - trains[idx].time) / 60);
+          return g >= GAP_MIN ? g : 0;
+        }
+        var gap0 = gapAfter(0);
+        if (gap0) {
+          root.appendChild(el("p", "gap-note-standalone",
+            "⚠ Then a " + gap0 + " min gap — don't miss this one"));
+        }
+
+        if (trains.length > 1) {
+          var ul = el("ul", "later mono");
+          for (var i = 1; i < trains.length; i++) {
+            var t = trains[i];
+            var li = document.createElement("li");
+            var rowMins = el("span", "mins", minsLabel(t.time, nowMs));
+            rowMins.dataset.time = t.time;
+            li.appendChild(rowMins);
+            li.appendChild(el("span", "clock", clock(t.time)));
+            var rowSub = subText(board, t);
+            if (rowSub) li.appendChild(el("span", "term", rowSub));
+            ul.appendChild(li);
+            var g = gapAfter(i);
+            if (g) {
+              ul.appendChild(el("li", "gap-note",
+                "⚠ Then a " + g + " min gap — don't miss this one"));
+            }
+          }
+          root.appendChild(ul);
+        }
+      }
+
+      // Per-second countdown tick: update only the countdown labels,
+      // using the departure times stamped on them at render time.
+      function tick() {
+        if (!state.data) return;
+        var nowMs = Date.now();
+        var nodes = document.querySelectorAll(".mins[data-time]");
+        for (var i = 0; i < nodes.length; i++) {
+          var t = Number(nodes[i].dataset.time);
+          nodes[i].textContent = nodes[i].dataset.hero
+            ? heroLabel(t, nowMs)
+            : minsLabel(t, nowMs);
+        }
+      }
+
+      // ── state + refresh loop ───────────────────────────────────
+      var state = {
+        data: null,       // { out: [], back: [], alerts: [] }
+        feedError: null,
+        fetchedAt: 0,
+        fetching: false,
+        failed: false     // last load failed with nothing to show
+      };
+
+      var statusDot = document.getElementById("statusDot");
+      var statusText = document.getElementById("statusText");
+      var loadingMsg = document.getElementById("loadingMsg");
+      var errorBox = document.getElementById("errorBox");
+      var content = document.getElementById("content");
+      var alertsBox = document.getElementById("alertsBox");
+      var refreshBtn = document.getElementById("refreshBtn");
+
+      function render() {
+        var nowMs = Date.now();
+
+        if (!state.data && !state.failed) {
+          loadingMsg.hidden = false;
+          errorBox.hidden = true;
+          content.hidden = true;
+          statusDot.className = "dot";
+          statusText.textContent = "Loading live times…";
+          return;
+        }
+        if (!state.data && state.failed) {
+          loadingMsg.hidden = true;
+          errorBox.hidden = false;
+          content.hidden = true;
+          statusDot.className = "dot bad";
+          statusText.textContent = "Feed unavailable";
+          return;
+        }
+
+        loadingMsg.hidden = true;
+        errorBox.hidden = true;
+        content.hidden = false;
+        statusDot.className = "dot " + (state.feedError ? "bad" : "ok");
+        statusText.textContent = state.feedError
+          ? "Feed unavailable — showing last times from " + stampFmt.format(new Date(state.fetchedAt))
+          : "Updated " + stampFmt.format(new Date(state.fetchedAt));
+
+        var alerts = state.data.alerts || [];
+        alertsBox.innerHTML = "";
+        if (alerts.length) {
+          alertsBox.hidden = false;
+          for (var i = 0; i < alerts.length; i++) {
+            alertsBox.appendChild(el("p", null, "⚠ " + alerts[i]));
+          }
+        } else {
+          alertsBox.hidden = true;
+        }
+
+        renderBoard(BOARDS[0], state.data.out, state.feedError, nowMs);
+        renderBoard(BOARDS[1], state.data.back, state.feedError, nowMs);
+      }
+
+      function load() {
+        if (state.fetching) return;
+        state.fetching = true;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "Refreshing…";
+
+        var tripsDone = loadTrips()
+          .then(function (trips) { return { ok: true, trips: trips }; })
+          .catch(function () { return { ok: false, trips: null }; });
+
+        var alertsDone = loadAlerts();
+
+        Promise.all([tripsDone, alertsDone]).then(function (results) {
+          var res = results[0];
+          var alerts = results[1];
+          state.fetching = false;
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "Refresh";
+
+          if (res.ok) {
+            state.data = {
+              out: boardTrains(res.trips, JAMAICA, BALDWIN),
+              back: boardTrains(res.trips, BALDWIN, JAMAICA),
+              alerts: alerts || (state.data ? state.data.alerts : [])
+            };
+            state.feedError = null;
+            state.fetchedAt = Date.now();
+            state.failed = false;
+          } else if (state.data) {
+            // Keep the last good board on screen, flagged as stale.
+            state.feedError = "Couldn't reach the LIRR feed.";
+          } else {
+            state.failed = true;
+          }
+          render();
+        });
+      }
+
+      refreshBtn.addEventListener("click", load);
+      document.getElementById("retryBtn").addEventListener("click", load);
+
+      // Countdown labels tick every second; a full re-render every 15s
+      // prunes trains that have left; feeds reload every 30s while open.
+      setInterval(tick, 1000);
+      setInterval(render, 15000);
+      setInterval(function () {
+        if (!document.hidden) load();
+      }, 30000);
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) load();
+      });
+
+      load();
+    </script>
+  </body>
+</html>
