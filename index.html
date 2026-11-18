@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0c0c0d" />
+    <!-- Lets the page run full-screen when added to the iPhone home screen from Safari. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Commute Board" />
+    <!-- Empty inline icon: stops the browser fetching /favicon.ico, which
+         lives outside the artifact's routes and 404s. -->
+    <link rel="icon" href="data:," />
+    <title>Commute Board</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Departure-board theme: a station board is black in either system
+         mode, so the palette is fixed rather than following
+         prefers-color-scheme. */
+      :root {
+        color-scheme: dark;
+        --bg: #0c0c0d;
+        --surface: #17181a;
+        --text: #f2f0eb;
+        --dim: #9a978e;
+        --border: #2a2b2f;
+        --accent: #ffb340;
+        --alert-bg: #8a3320;
+        --ok: #34c759;
+        --bad: #ff453a;
+        --j-brown: #996633;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      main {
+        margin: 0 auto;
+        width: 100%;
+        max-width: 42rem;
+        padding: 0 1rem 2rem;
+      }
+      .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace; }
+
+      /* Status row */
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 1rem 0;
+      }
+      .status-line {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--dim);
+        margin: 0;
+      }
+      .dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--dim); flex-shrink: 0; }
+      .dot.ok { background: var(--ok); }
+      .dot.bad { background: var(--bad); }
+      button {
+        min-height: 2.25rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-size: 0.875rem;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        border-radius: 6px;
+        -webkit-tap-highlight-color: transparent;
+      }
+      button:disabled { opacity: 0.5; }
+      button:active { background: #232428; }
+
+      /* Alert banner */
+      .alerts {
+        border: 1px solid var(--alert-bg);
+        background: var(--alert-bg);
+        padding: 0.875rem;
+        border-radius: 6px;
+        margin-bottom: 1rem;
+      }
+      .alerts p {
+        margin: 0;
+        font-size: 0.875rem;
+        font-weight: 600;
+        line-height: 1.35;
+        color: #fff;
+      }
+      .alerts p + p { margin-top: 0.375rem; }
+
+      /* Boards */
+      .boards { display: flex; flex-direction: column; gap: 1rem; }
+      .board {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        padding: 1rem;
+        border-radius: 6px;
+      }
+      .board-head { display: flex; align-items: center; gap: 0.625rem; }
+      .board-head h2 {
+        margin: 0;
+        font-size: 1.125rem;
+        font-weight: 600;
+      }
+      .board-head h2 .dir { margin-left: 0.5rem; font-weight: 500; color: var(--dim); }
+      .bullet {
+        display: flex;
+        width: 1.5rem; height: 1.5rem;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9999px;
+        background: var(--j-brown);
+        color: #fff;
+        font-size: 0.875rem;
+        font-weight: 700;
+      }
+      .next {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.25rem 0.75rem;
+        margin-top: 0.75rem;
+      }
+      .next .mins { font-size: 3rem; font-weight: 600; line-height: 1.05; color: var(--accent); }
+      .next .clock { font-size: 1.25rem; }
+      .next .term { font-size: 1rem; color: var(--dim); }
+      .next .ztag { font-size: 0.875rem; font-weight: 600; color: var(--dim); }
+      .later { list-style: none; margin: 0.75rem 0 0; padding: 0; }
+      .later li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        padding: 0.5rem 0;
+        border-top: 1px solid var(--border);
+      }
+      .later .mins { width: 4rem; flex-shrink: 0; font-size: 1rem; font-weight: 600; }
+      .later .clock { font-size: 0.875rem; color: var(--dim); }
+      .later .term { font-size: 0.875rem; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .later .ztag { font-size: 0.75rem; font-weight: 600; color: var(--dim); }
+      .board-msg { padding: 0.5rem 0; font-size: 0.875rem; color: var(--dim); margin: 0; }
+
+      .footnote {
+        padding: 0.25rem 0.25rem 0;
+        font-size: 0.75rem;
+        line-height: 1.5;
+        color: var(--dim);
+        margin: 1rem 0 0;
+      }
+      .center-msg { padding: 4rem 0; text-align: center; font-size: 0.875rem; color: var(--dim); }
+      .error-box h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+      .error-box p { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--dim); }
+      .error-box button {
+        margin-top: 0.75rem;
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #000;
+      }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="status-row">
+        <p class="status-line mono">
+          <span class="dot" id="statusDot" aria-hidden="true"></span>
+          <span id="statusText">Loading live times…</span>
+        </p>
+        <button type="button" id="refreshBtn" aria-label="Refresh train times">Refresh</button>
+      </div>
+
+      <p class="center-msg mono" id="loadingMsg">Reaching the MTA feeds…</p>
+
+      <section class="board error-box" id="errorBox" hidden>
+        <h3>Couldn't load the boards</h3>
+        <p>Neither train feed answered. Check your connection and try again.</p>
+        <button type="button" id="retryBtn">Try again</button>
+      </section>
+
+      <div id="content" hidden>
+        <div class="alerts" id="alertsBox" role="alert" hidden></div>
+        <div class="boards">
+          <section class="board" id="boardChambers" aria-label="Chambers Street, trains toward Brooklyn"></section>
+          <section class="board" id="boardMarcy" aria-label="Marcy Avenue, trains toward Manhattan"></section>
+        </div>
+        <p class="footnote">
+          Live from the MTA GTFS-Realtime feed · refreshes every 30 seconds
+          while open. In Safari: Share → Add to Home Screen keeps it on your
+          home screen like an app.
+        </p>
+      </div>
+    </main>
+
+    <script>
+      "use strict";
+
+      // ── MTA feed endpoints ─────────────────────────────────────
+      // Both feeds are public and send Access-Control-Allow-Origin: *.
+      // In practice Safari on the phone still failed to load them while
+      // desktop browsers succeeded, so loadJzBoards() below retries the
+      // MTA feed several ways and falls back to a JSON mirror.
+      var JZ_FEED_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-jz";
+      var ALERTS_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fsubway-alerts.json";
+
+      // Backup source: SubwayNow (the Good Service API) republishes the
+      // same MTA realtime data as plain JSON with Access-Control-Allow-
+      // Origin: *. Safari on the phone failed to load the MTA host at all
+      // (feed worked in desktop browsers at the same minute), so if every
+      // direct MTA attempt fails, the boards fall back to this mirror
+      // instead of showing "Feed unavailable".
+      var SN_STOP_URLS = {
+        M21: "https://api.subwaynow.app/stops/M21",
+        M16: "https://api.subwaynow.app/stops/M16"
+      };
+
+      var MAX_TRAINS = 4;
+
+      // Last stop of a J/Z trip → short destination label.
+      var TERMINALS = {
+        G05: "Jamaica Center",
+        G06: "Sutphin Blvd",
+        M23: "Broad St",
+        J27: "Broadway Jct"
+      };
+
+      // The two boards. Direction labels verified against the MTA's own
+      // platform mapping and live trains: the N platform is Jamaica-bound
+      // (via Brooklyn), the S platform is Broad St-bound (Manhattan).
+      var BOARDS = [
+        { el: "boardChambers", title: "Chambers St", dir: "→ Brooklyn", stop: "M21N" },
+        { el: "boardMarcy", title: "Marcy Av", dir: "→ Manhattan", stop: "M16S" }
+      ];
+
+      // ── minimal GTFS-Realtime protobuf decoder ───────────────
+      function readVarint(bytes, pos) {
+        var result = 0, shift = 0;
+        while (pos < bytes.length) {
+          var b = bytes[pos] || 0;
+          pos += 1;
+          result += (b & 0x7f) * Math.pow(2, shift);
+          shift += 7;
+          if (!(b & 0x80)) break;
+        }
+        return [result, pos];
+      }
+
+      function parseFields(bytes, start, end) {
+        var fields = [];
+        var pos = start;
+        while (pos < end) {
+          var tag = readVarint(bytes, pos);
+          pos = tag[1];
+          var num = Math.floor(tag[0] / 8);
+          var wire = tag[0] % 8;
+          if (wire === 0) {
+            var v = readVarint(bytes, pos);
+            pos = v[1];
+            fields.push({ num: num, wire: wire, value: v[0] });
+          } else if (wire === 2) {
+            var len = readVarint(bytes, pos);
+            pos = len[1];
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + len[0]) });
+            pos += len[0];
+          } else if (wire === 1) {
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + 8) });
+            pos += 8;
+          } else if (wire === 5) {
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + 4) });
+            pos += 4;
+          } else {
+            break;
+          }
+        }
+        return fields;
+      }
+
+      function ascii(bytes) {
+        var s = "";
+        for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i] || 0);
+        return s;
+      }
+
+      function asBytes(v) {
+        return v instanceof Uint8Array ? v : null;
+      }
+
+      // ── feed parsing ───────────────────────────────────────────
+      function parseSubwayFeed(buf) {
+        var bytes = new Uint8Array(buf);
+        var out = { M21N: [], M16S: [] };
+        var feed = parseFields(bytes, 0, bytes.length);
+        for (var fi = 0; fi < feed.length; fi++) {
+          var entityBytes = asBytes(feed[fi].value);
+          if (feed[fi].num !== 2 || !entityBytes) continue; // FeedEntity
+          var entity = parseFields(entityBytes, 0, entityBytes.length);
+          for (var ei = 0; ei < entity.length; ei++) {
+            var tuBytes = asBytes(entity[ei].value);
+            if (entity[ei].num !== 3 || !tuBytes) continue; // TripUpdate
+            var tu = parseFields(tuBytes, 0, tuBytes.length);
+            var routeId = "";
+            var stus = [];
+            for (var ti = 0; ti < tu.length; ti++) {
+              var tfBytes = asBytes(tu[ti].value);
+              if (!tfBytes) continue;
+              if (tu[ti].num === 1) {
+                var trip = parseFields(tfBytes, 0, tfBytes.length);
+                for (var pi = 0; pi < trip.length; pi++) {
+                  var pfBytes = asBytes(trip[pi].value);
+                  if (trip[pi].num === 5 && pfBytes) routeId = ascii(pfBytes);
+                }
+              } else if (tu[ti].num === 2) {
+                stus.push(tfBytes); // StopTimeUpdate
+              }
+            }
+            if (routeId !== "J" && routeId !== "Z") continue;
+
+            var terminal = "";
+            var lastStu = stus[stus.length - 1];
+            if (lastStu) {
+              var last = parseFields(lastStu, 0, lastStu.length);
+              for (var li = 0; li < last.length; li++) {
+                var lfBytes = asBytes(last[li].value);
+                if (last[li].num === 4 && lfBytes) {
+                  var base = ascii(lfBytes).replace(/[NS]$/, "");
+                  terminal = TERMINALS[base] || "";
+                }
+              }
+            }
+
+            var times = {};
+            for (var si = 0; si < stus.length; si++) {
+              var stu = parseFields(stus[si], 0, stus[si].length);
+              var stopId = "", arr = null, dep = null;
+              for (var sfi = 0; sfi < stu.length; sfi++) {
+                var sfBytes = asBytes(stu[sfi].value);
+                if (stu[sfi].num === 4 && sfBytes) stopId = ascii(sfBytes);
+                if ((stu[sfi].num === 2 || stu[sfi].num === 3) && sfBytes) {
+                  var ev = parseFields(sfBytes, 0, sfBytes.length);
+                  for (var vi = 0; vi < ev.length; vi++) {
+                    if (ev[vi].num === 2 && typeof ev[vi].value === "number") {
+                      if (stu[sfi].num === 2) arr = ev[vi].value;
+                      else dep = ev[vi].value;
+                    }
+                  }
+                }
+              }
+              var t = dep !== null ? dep : arr;
+              if (t && stopId) times[stopId] = t;
+            }
+            for (var stopKey in times) {
+              if (Object.prototype.hasOwnProperty.call(out, stopKey)) {
+                out[stopKey].push({ route: routeId, time: times[stopKey], terminal: terminal });
+              }
+            }
+          }
+        }
+        var nowSec = Date.now() / 1000;
+        for (var id in out) {
+          var seen = {};
+          out[id] = out[id]
+            .filter(function (x) { return x.time > nowSec - 30; })
+            .sort(function (a, b) { return a.time - b.time; })
+            .filter(function (x) {
+              if (seen[x.time]) return false;
+              seen[x.time] = true;
+              return true;
+            })
+            .slice(0, MAX_TRAINS);
+        }
+        return out;
+      }
+
+      // ── alerts ─────────────────────────────────────────────────
+      function cleanAlertText(s) {
+        return s.replace(/\[([A-Z0-9]+)\]/g, "$1").replace(/\s+/g, " ").trim();
+      }
+
+      function parseAlerts(data) {
+        var now = Date.now() / 1000;
+        var out = [];
+        var entities = (data && data.entity) || [];
+        for (var i = 0; i < entities.length; i++) {
+          var a = entities[i].alert;
+          if (!a) continue;
+          var ies = a.informed_entity || [];
+          var routes = {}, stops = {}, hasStop = false;
+          for (var j = 0; j < ies.length; j++) {
+            if (ies[j].route_id) routes[ies[j].route_id] = true;
+            if (ies[j].stop_id) { stops[ies[j].stop_id] = true; hasStop = true; }
+          }
+          if (!routes.J && !routes.Z) continue;
+          var periods = a.active_period || [];
+          var active =
+            periods.length === 0 ||
+            periods.some(function (p) {
+              return (p.start || 0) <= now && now <= (p.end || 9999999999);
+            });
+          if (!active) continue;
+          if (hasStop && !stops.M21 && !stops.M16) continue;
+          var translations = (a.header_text && a.header_text.translation) || [];
+          var en = null;
+          for (var k = 0; k < translations.length; k++) {
+            if (translations[k].language === "en") { en = translations[k]; break; }
+          }
+          var header = en && en.text ? cleanAlertText(en.text) : "";
+          if (header && out.indexOf(header) === -1) out.push(header);
+        }
+        return out.slice(0, 2);
+      }
+
+      // ── fetching ───────────────────────────────────────────────
+      function fetchWithTimeout(url, ms) {
+        var ctrl = new AbortController();
+        var timer = setTimeout(function () { ctrl.abort(); }, ms);
+        return fetch(url, { signal: ctrl.signal, cache: "no-store" }).then(
+          function (res) {
+            clearTimeout(timer);
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res;
+          },
+          function (err) {
+            clearTimeout(timer);
+            throw err;
+          }
+        );
+      }
+
+      function withBuster(url) {
+        return url + (url.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now();
+      }
+
+      // Plain fetch: no AbortController signal, no cache option — a
+      // different code path in Safari than fetchWithTimeout, plus a
+      // cache-busting query so a cached error response can't stick.
+      function plainFetch(url, ms) {
+        var timedOut = new Promise(function (_, reject) {
+          setTimeout(function () { reject(new Error("timeout")); }, ms);
+        });
+        return Promise.race([
+          fetch(withBuster(url)).then(function (res) {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res;
+          }),
+          timedOut
+        ]);
+      }
+
+      // XMLHttpRequest fallback for the binary feed — older, separate
+      // networking path that some Safari builds handle when fetch fails.
+      function xhrArrayBuffer(url, ms) {
+        return new Promise(function (resolve, reject) {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", withBuster(url), true);
+          xhr.responseType = "arraybuffer";
+          xhr.timeout = ms;
+          xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
+              resolve(xhr.response);
+            } else {
+              reject(new Error("HTTP " + xhr.status));
+            }
+          };
+          xhr.onerror = function () { reject(new Error("XHR failed")); };
+          xhr.ontimeout = function () { reject(new Error("XHR timeout")); };
+          xhr.send();
+        });
+      }
+
+      function finalizeTrains(list) {
+        var nowSec = Date.now() / 1000;
+        var seen = {};
+        return list
+          .filter(function (x) { return x.time > nowSec - 30; })
+          .sort(function (a, b) { return a.time - b.time; })
+          .filter(function (x) {
+            if (seen[x.time]) return false;
+            seen[x.time] = true;
+            return true;
+          })
+          .slice(0, MAX_TRAINS);
+      }
+
+      // SubwayNow stop JSON → the board's train list. Direction mapping
+      // matches the MTA boards: Chambers St "north" is Jamaica-bound
+      // (via Brooklyn); Marcy Av "south" is Broad St-bound (Manhattan).
+      // M trains also stop at Marcy, so keep J/Z only.
+      function parseSubwayNowStop(json, dir) {
+        var trips =
+          (json && json.upcoming_trips && json.upcoming_trips[dir]) || [];
+        var list = [];
+        for (var i = 0; i < trips.length; i++) {
+          var t = trips[i];
+          if (t.route_id !== "J" && t.route_id !== "Z") continue;
+          var time =
+            t.estimated_current_stop_arrival_time ||
+            t.current_stop_arrival_time;
+          if (!time) continue;
+          list.push({
+            route: t.route_id,
+            time: time,
+            terminal: TERMINALS[t.destination_stop] || ""
+          });
+        }
+        return finalizeTrains(list);
+      }
+
+      function loadBoardsFromSubwayNow() {
+        return Promise.all([
+          plainFetch(SN_STOP_URLS.M21, 15000).then(function (r) { return r.json(); }),
+          plainFetch(SN_STOP_URLS.M16, 15000).then(function (r) { return r.json(); })
+        ]).then(function (stops) {
+          return {
+            M21N: parseSubwayNowStop(stops[0], "north"),
+            M16S: parseSubwayNowStop(stops[1], "south")
+          };
+        });
+      }
+
+      // Try the official MTA feed three ways, then the SubwayNow mirror.
+      // Resolves with { M21N: [...], M16S: [...] } or rejects if every
+      // source failed.
+      function loadJzBoards() {
+        function fromFetch() {
+          return fetchWithTimeout(JZ_FEED_URL, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parseSubwayFeed);
+        }
+        function fromPlainFetch() {
+          return plainFetch(JZ_FEED_URL, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parseSubwayFeed);
+        }
+        function fromXhr() {
+          return xhrArrayBuffer(JZ_FEED_URL, 15000).then(parseSubwayFeed);
+        }
+        return fromFetch()
+          .catch(fromPlainFetch)
+          .catch(fromXhr)
+          .catch(loadBoardsFromSubwayNow);
+      }
+
+      function loadAlerts() {
+        return fetchWithTimeout(ALERTS_URL, 15000)
+          .then(function (res) { return res.json(); })
+          .then(parseAlerts)
+          .catch(function () {
+            return plainFetch(ALERTS_URL, 15000)
+              .then(function (res) { return res.json(); })
+              .then(parseAlerts);
+          })
+          .catch(function () { return null; });
+      }
+
+      // ── rendering ──────────────────────────────────────────────
+      var clockFmt = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric", minute: "2-digit", timeZone: "America/New_York"
+      });
+      var stampFmt = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York"
+      });
+
+      function clock(epochSec) {
+        return clockFmt.format(new Date(epochSec * 1000));
+      }
+
+      function minsLabel(epochSec, nowMs) {
+        var m = Math.round((epochSec * 1000 - nowMs) / 60000);
+        if (m <= 0) return "Now";
+        if (m === 1) return "1 min";
+        return m + " min";
+      }
+
+      function el(tag, cls, text) {
+        var node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function renderBoard(board, trains, error, nowMs) {
+        var root = document.getElementById(board.el);
+        root.innerHTML = "";
+
+        var head = el("div", "board-head");
+        var bullet = el("span", "bullet", trains.length && trains[0].route ? trains[0].route : "J");
+        bullet.setAttribute("aria-hidden", "true");
+        var h2 = el("h2", null, board.title);
+        var dir = el("span", "dir", board.dir);
+        h2.appendChild(dir);
+        head.appendChild(bullet);
+        head.appendChild(h2);
+        root.appendChild(head);
+
+        if (error) {
+          root.appendChild(el("p", "board-msg", error));
+          return;
+        }
+        if (!trains.length) {
+          root.appendChild(el("p", "board-msg", "No trains scheduled"));
+          return;
+        }
+
+        var first = trains[0];
+        var next = el("div", "next");
+        var mins = el("span", "mins mono", minsLabel(first.time, nowMs));
+        next.appendChild(mins);
+        next.appendChild(el("span", "clock mono", clock(first.time)));
+        if (first.terminal) next.appendChild(el("span", "term", "to " + first.terminal));
+        if (first.route === "Z") next.appendChild(el("span", "ztag", "Z train"));
+        root.appendChild(next);
+
+        if (trains.length > 1) {
+          var ul = el("ul", "later mono");
+          for (var i = 1; i < trains.length; i++) {
+            var t = trains[i];
+            var li = document.createElement("li");
+            li.appendChild(el("span", "mins", minsLabel(t.time, nowMs)));
+            li.appendChild(el("span", "clock", clock(t.time)));
+            if (t.terminal) li.appendChild(el("span", "term", t.terminal));
+            if (t.route === "Z") li.appendChild(el("span", "ztag", "Z"));
+            ul.appendChild(li);
+          }
+          root.appendChild(ul);
+        }
+      }
+
+      // ── state + refresh loop ───────────────────────────────────
+      var state = {
+        data: null,       // { chambers: [], marcy: [], alerts: [] }
+        jzError: null,
+        fetchedAt: 0,
+        fetching: false,
+        failed: false     // last load failed with nothing to show
+      };
+
+      var statusDot = document.getElementById("statusDot");
+      var statusText = document.getElementById("statusText");
+      var loadingMsg = document.getElementById("loadingMsg");
+      var errorBox = document.getElementById("errorBox");
+      var content = document.getElementById("content");
+      var alertsBox = document.getElementById("alertsBox");
+      var refreshBtn = document.getElementById("refreshBtn");
+
+      function render() {
+        var nowMs = Date.now();
+
+        if (!state.data && !state.failed) {
+          loadingMsg.hidden = false;
+          errorBox.hidden = true;
+          content.hidden = true;
+          statusDot.className = "dot";
+          statusText.textContent = "Loading live times…";
+          return;
+        }
+        if (!state.data && state.failed) {
+          loadingMsg.hidden = true;
+          errorBox.hidden = false;
+          content.hidden = true;
+          statusDot.className = "dot bad";
+          statusText.textContent = "Feed unavailable";
+          return;
+        }
+
+        loadingMsg.hidden = true;
+        errorBox.hidden = true;
+        content.hidden = false;
+        statusDot.className = "dot " + (state.jzError ? "bad" : "ok");
+        statusText.textContent = state.jzError
+          ? "Feed unavailable — showing last times from " + stampFmt.format(new Date(state.fetchedAt))
+          : "Updated " + stampFmt.format(new Date(state.fetchedAt));
+
+        var alerts = state.data.alerts || [];
+        alertsBox.innerHTML = "";
+        if (alerts.length) {
+          alertsBox.hidden = false;
+          for (var i = 0; i < alerts.length; i++) {
+            alertsBox.appendChild(el("p", null, "⚠ " + alerts[i]));
+          }
+        } else {
+          alertsBox.hidden = true;
+        }
+
+        renderBoard(BOARDS[0], state.data.chambers, state.jzError, nowMs);
+        renderBoard(BOARDS[1], state.data.marcy, state.jzError, nowMs);
+      }
+
+      function load() {
+        if (state.fetching) return;
+        state.fetching = true;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "Refreshing…";
+
+        var jzDone = loadJzBoards()
+          .then(function (boards) { return { ok: true, boards: boards }; })
+          .catch(function () { return { ok: false, boards: null }; });
+
+        var alertsDone = loadAlerts();
+
+        Promise.all([jzDone, alertsDone]).then(function (results) {
+          var jz = results[0];
+          var alerts = results[1];
+          state.fetching = false;
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "Refresh";
+
+          if (jz.ok) {
+            state.data = {
+              chambers: jz.boards.M21N || [],
+              marcy: jz.boards.M16S || [],
+              alerts: alerts || (state.data ? state.data.alerts : [])
+            };
+            state.jzError = null;
+            state.fetchedAt = Date.now();
+            state.failed = false;
+          } else if (state.data) {
+            // Keep the last good board on screen, flagged as stale.
+            state.jzError = "Couldn't reach the train feeds.";
+          } else {
+            state.failed = true;
+          }
+          render();
+        });
+      }
+
+      refreshBtn.addEventListener("click", load);
+      document.getElementById("retryBtn").addEventListener("click", load);
+
+      // Countdowns tick every 15s; feeds reload every 30s while open.
+      setInterval(render, 15000);
+      setInterval(function () {
+        if (!document.hidden) load();
+      }, 30000);
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) load();
+      });
+
+      load();
+    </script>
+  </body>
+</html>
