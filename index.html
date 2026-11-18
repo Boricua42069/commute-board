@@ -145,8 +145,11 @@
       }
       .next .mins { font-size: 3rem; font-weight: 600; line-height: 1.05; color: var(--accent); }
       .next .clock { font-size: 1.25rem; }
-      .next .term { font-size: 1rem; color: var(--dim); }
-      .next .ztag { font-size: 0.875rem; font-weight: 600; color: var(--dim); }
+      /* Destination sits on its own line under the countdown, so the
+         hero row never wraps mid-phrase on narrow screens. */
+      .next-sub { display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.125rem; }
+      .next-sub .term { font-size: 1rem; color: var(--dim); }
+      .next-sub .ztag { font-size: 0.875rem; font-weight: 600; color: var(--dim); }
       .later { list-style: none; margin: 0.75rem 0 0; padding: 0; }
       .later li {
         display: flex;
@@ -659,9 +662,13 @@
         mins.dataset.hero = "1";
         next.appendChild(mins);
         next.appendChild(el("span", "clock mono", clock(first.time)));
-        if (first.terminal) next.appendChild(el("span", "term", "to " + first.terminal));
-        if (first.route === "Z") next.appendChild(el("span", "ztag", "Z train"));
         root.appendChild(next);
+        if (first.terminal || first.route === "Z") {
+          var sub = el("div", "next-sub");
+          if (first.terminal) sub.appendChild(el("span", "term", "to " + first.terminal));
+          if (first.route === "Z") sub.appendChild(el("span", "ztag", "Z train"));
+          root.appendChild(sub);
+        }
 
         // Flag a long wait after any train, including the next one.
         function gapAfter(idx) {
