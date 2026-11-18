@@ -159,6 +159,20 @@
       .later .clock { font-size: 0.875rem; color: var(--dim); }
       .later .term { font-size: 0.875rem; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .later .ztag { font-size: 0.75rem; font-weight: 600; color: var(--dim); }
+      .later li.gap-note {
+        display: block;
+        border-top: none;
+        padding: 0.125rem 0 0.375rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .gap-note-standalone {
+        margin: 0.375rem 0 0;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
       .board-msg { padding: 0.5rem 0; font-size: 0.875rem; color: var(--dim); margin: 0; }
 
       .footnote {
@@ -593,6 +607,21 @@
         return m + " min";
       }
 
+      // Hero countdown for the next train: under 2 minutes it ticks in
+      // m:ss so the wait feels live; above that it matches the rows.
+      function heroLabel(epochSec, nowMs) {
+        var sec = Math.round((epochSec * 1000 - nowMs) / 1000);
+        if (sec <= 0) return "Now";
+        if (sec < 120) {
+          var m = Math.floor(sec / 60);
+          var s = sec % 60;
+          return m + ":" + (s < 10 ? "0" : "") + s;
+        }
+        return minsLabel(epochSec, nowMs);
+      }
+
+      var GAP_MIN = 15; // a wait this long after a train gets flagged
+
       function el(tag, cls, text) {
         var node = document.createElement(tag);
         if (cls) node.className = cls;
@@ -625,25 +654,60 @@
 
         var first = trains[0];
         var next = el("div", "next");
-        var mins = el("span", "mins mono", minsLabel(first.time, nowMs));
+        var mins = el("span", "mins mono", heroLabel(first.time, nowMs));
+        mins.dataset.time = first.time;
+        mins.dataset.hero = "1";
         next.appendChild(mins);
         next.appendChild(el("span", "clock mono", clock(first.time)));
         if (first.terminal) next.appendChild(el("span", "term", "to " + first.terminal));
         if (first.route === "Z") next.appendChild(el("span", "ztag", "Z train"));
         root.appendChild(next);
 
+        // Flag a long wait after any train, including the next one.
+        function gapAfter(idx) {
+          if (idx + 1 >= trains.length) return 0;
+          var g = Math.round((trains[idx + 1].time - trains[idx].time) / 60);
+          return g >= GAP_MIN ? g : 0;
+        }
+        var gap0 = gapAfter(0);
+        if (gap0) {
+          root.appendChild(el("p", "gap-note-standalone",
+            "⚠ Then a " + gap0 + " min gap — don't miss this one"));
+        }
+
         if (trains.length > 1) {
           var ul = el("ul", "later mono");
           for (var i = 1; i < trains.length; i++) {
             var t = trains[i];
             var li = document.createElement("li");
-            li.appendChild(el("span", "mins", minsLabel(t.time, nowMs)));
+            var rowMins = el("span", "mins", minsLabel(t.time, nowMs));
+            rowMins.dataset.time = t.time;
+            li.appendChild(rowMins);
             li.appendChild(el("span", "clock", clock(t.time)));
             if (t.terminal) li.appendChild(el("span", "term", t.terminal));
             if (t.route === "Z") li.appendChild(el("span", "ztag", "Z"));
             ul.appendChild(li);
+            var g = gapAfter(i);
+            if (g) {
+              ul.appendChild(el("li", "gap-note",
+                "⚠ Then a " + g + " min gap — don't miss this one"));
+            }
           }
           root.appendChild(ul);
+        }
+      }
+
+      // Per-second countdown tick: update only the countdown labels,
+      // using the departure times stamped on them at render time.
+      function tick() {
+        if (!state.data) return;
+        var nowMs = Date.now();
+        var nodes = document.querySelectorAll(".mins[data-time]");
+        for (var i = 0; i < nodes.length; i++) {
+          var t = Number(nodes[i].dataset.time);
+          nodes[i].textContent = nodes[i].dataset.hero
+            ? heroLabel(t, nowMs)
+            : minsLabel(t, nowMs);
         }
       }
 
@@ -748,7 +812,9 @@
       refreshBtn.addEventListener("click", load);
       document.getElementById("retryBtn").addEventListener("click", load);
 
-      // Countdowns tick every 15s; feeds reload every 30s while open.
+      // Countdown labels tick every second; a full re-render every 15s
+      // prunes trains that have left; feeds reload every 30s while open.
+      setInterval(tick, 1000);
       setInterval(render, 15000);
       setInterval(function () {
         if (!document.hidden) load();
