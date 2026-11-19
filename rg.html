@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0c0c0d" />
+    <link rel="apple-touch-icon" sizes="180x180" href="rg-apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="rg-icon-512.png" />
+    <!-- Lets the page run full-screen when added to the iPhone home screen from Safari. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="R-G Board" />
+    <!-- Empty inline icon: stops the browser fetching /favicon.ico. -->
+    <link rel="icon" href="data:," />
+    <title>R–G Board — 53 St ↔ Bedford-Nostrand</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Departure-board theme: a station board is black in either system
+         mode, so the palette is fixed rather than following
+         prefers-color-scheme. */
+      :root {
+        color-scheme: dark;
+        --bg: #0c0c0d;
+        --surface: #17181a;
+        --text: #f2f0eb;
+        --dim: #9a978e;
+        --border: #2a2b2f;
+        --accent: #ffb340;
+        --alert-bg: #8a3320;
+        --ok: #34c759;
+        --bad: #ff453a;
+        --r-yellow: #fccc0a;
+        --g-green: #6cbe45;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      main {
+        margin: 0 auto;
+        width: 100%;
+        max-width: 42rem;
+        padding: 0 1rem 2rem;
+      }
+      .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace; }
+
+      /* Status row */
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 1rem 0;
+      }
+      .status-line {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--dim);
+        margin: 0;
+      }
+      .dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--dim); flex-shrink: 0; }
+      .dot.ok { background: var(--ok); }
+      .dot.bad { background: var(--bad); }
+      button {
+        min-height: 2.25rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-size: 0.875rem;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        border-radius: 6px;
+        -webkit-tap-highlight-color: transparent;
+      }
+      button:disabled { opacity: 0.5; }
+      button:active { background: #232428; }
+
+      /* Alert banner */
+      .alerts {
+        border: 1px solid var(--alert-bg);
+        background: var(--alert-bg);
+        padding: 0.875rem;
+        border-radius: 6px;
+        margin-bottom: 1rem;
+      }
+      .alerts p {
+        margin: 0;
+        font-size: 0.875rem;
+        font-weight: 600;
+        line-height: 1.35;
+        color: #fff;
+      }
+      .alerts p + p { margin-top: 0.375rem; }
+
+      /* Boards */
+      .group-label {
+        margin: 1.25rem 0 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: var(--dim);
+      }
+      .group-label:first-child { margin-top: 0; }
+      .boards { display: flex; flex-direction: column; gap: 1rem; }
+      .board {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        padding: 1rem;
+        border-radius: 6px;
+      }
+      .board-head { display: flex; align-items: center; gap: 0.625rem; }
+      .board-head h2 {
+        margin: 0;
+        font-size: 1.125rem;
+        font-weight: 600;
+      }
+      .board-head h2 .dir { margin-left: 0.5rem; font-weight: 500; color: var(--dim); }
+      .bullet {
+        display: flex;
+        width: 1.5rem; height: 1.5rem;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9999px;
+        font-size: 0.875rem;
+        font-weight: 700;
+      }
+      .bullet.r { background: var(--r-yellow); color: #000; }
+      .bullet.g { background: var(--g-green); color: #fff; }
+      .next {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.25rem 0.75rem;
+        margin-top: 0.75rem;
+      }
+      .next .mins { font-size: 3rem; font-weight: 600; line-height: 1.05; color: var(--accent); }
+      .next .clock { font-size: 1.25rem; }
+      /* Destination sits on its own line under the countdown, so the
+         hero row never wraps mid-phrase on narrow screens. */
+      .next-sub { display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.125rem; }
+      .next-sub .term { font-size: 1rem; color: var(--dim); }
+      .next-sub .ztag { font-size: 0.875rem; font-weight: 600; color: var(--dim); }
+      .later { list-style: none; margin: 0.75rem 0 0; padding: 0; }
+      .later li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        padding: 0.5rem 0;
+        border-top: 1px solid var(--border);
+      }
+      .later .mins { width: 4rem; flex-shrink: 0; font-size: 1rem; font-weight: 600; }
+      .later .clock { font-size: 0.875rem; color: var(--dim); }
+      .later .term { font-size: 0.875rem; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .later .ztag { font-size: 0.75rem; font-weight: 600; color: var(--dim); }
+      .later li.gap-note {
+        display: block;
+        border-top: none;
+        padding: 0.125rem 0 0.375rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .gap-note-standalone {
+        margin: 0.375rem 0 0;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .board-msg { padding: 0.5rem 0; font-size: 0.875rem; color: var(--dim); margin: 0; }
+
+      .footnote {
+        padding: 0.25rem 0.25rem 0;
+        font-size: 0.75rem;
+        line-height: 1.5;
+        color: var(--dim);
+        margin: 1rem 0 0;
+      }
+      .center-msg { padding: 4rem 0; text-align: center; font-size: 0.875rem; color: var(--dim); }
+      .error-box h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+      .error-box p { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--dim); }
+      .error-box button {
+        margin-top: 0.75rem;
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #000;
+      }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="status-row">
+        <p class="status-line mono">
+          <span class="dot" id="statusDot" aria-hidden="true"></span>
+          <span id="statusText">Loading live times…</span>
+        </p>
+        <button type="button" id="refreshBtn" aria-label="Refresh train times">Refresh</button>
+      </div>
+
+      <p class="center-msg mono" id="loadingMsg">Reaching the MTA feeds…</p>
+
+      <section class="board error-box" id="errorBox" hidden>
+        <h3>Couldn't load the boards</h3>
+        <p>Neither train feed answered. Check your connection and try again.</p>
+        <button type="button" id="retryBtn">Try again</button>
+      </section>
+
+      <div id="content" hidden>
+        <div class="alerts" id="alertsBox" role="alert" hidden></div>
+        <p class="group-label">TO BEDFORD-NOSTRAND</p>
+        <div class="boards">
+          <section class="board" id="boardROut" aria-label="R train at 53 Street to 9 Street"></section>
+          <section class="board" id="boardGOut" aria-label="G train at 4 Avenue-9 Street to Bedford-Nostrand"></section>
+        </div>
+        <p class="group-label">BACK TO 53 ST</p>
+        <div class="boards">
+          <section class="board" id="boardGBack" aria-label="G train at Bedford-Nostrand to 9 Street"></section>
+          <section class="board" id="boardRBack" aria-label="R train at 4 Avenue-9 Street to 53 Street"></section>
+        </div>
+        <p class="footnote">
+          Live from the MTA GTFS-Realtime feeds (R + G) · refreshes
+          every 30 seconds while open. Transfer between the R and G at
+          4 Av–9 St. In Safari: Share → Add to Home Screen keeps it on
+          your home screen like an app.
+        </p>
+      </div>
+    </main>
+
+    <script>
+      "use strict";
+
+      // ── MTA feed endpoints ─────────────────────────────────────
+      // Public feeds, Access-Control-Allow-Origin: *. Loaded with the
+      // same multi-attempt chain as the other boards (fetch, plain
+      // fetch, XHR, then a JSON mirror for the boards).
+      var NQRW_FEED_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw";
+      var G_FEED_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-g";
+      var ALERTS_URL =
+        "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/camsys%2Fsubway-alerts.json";
+
+      var SN_STOP_URLS = {
+        R40: "https://api.subwaynow.app/stops/R40",
+        R33: "https://api.subwaynow.app/stops/R33",
+        F23: "https://api.subwaynow.app/stops/F23",
+        G33: "https://api.subwaynow.app/stops/G33"
+      };
+
+      var MAX_TRAINS = 4;
+
+      // Last stop of a trip → short destination label.
+      var TERMINALS = {
+        G08: "Forest Hills-71 Av",
+        R45: "Bay Ridge-95 St",
+        G22: "Court Sq",
+        F27: "Church Av"
+      };
+
+      // Direction labels verified against live trains on 2026-11-19:
+      // R40N trains terminate at Forest Hills-71 Av (G08) and reach
+      // 9 St ~9 min later; R33S trains terminate at Bay Ridge-95 St
+      // (R45); F23N trains terminate at Court Sq (G22) and reach
+      // Bedford-Nostrand ~14 min later; G33S trains terminate at
+      // Church Av (F27). N = toward Manhattan/Court Sq, S = toward
+      // Bay Ridge/Church Av on both lines here.
+      var BOARDS = [
+        { el: "boardROut", title: "53 St", dir: "→ 9 St", route: "R", feed: "nqrw",
+          from: "R40N", to: "R33", arrLabel: "arr 9 St", gapMin: 15 },
+        { el: "boardGOut", title: "4 Av–9 St", dir: "→ Bedford-Nostrand", route: "G", feed: "g",
+          from: "F23N", to: "G33", arrLabel: "arr Bedford-Nostrand", gapMin: 15 },
+        { el: "boardGBack", title: "Bedford-Nostrand", dir: "→ 9 St", route: "G", feed: "g",
+          from: "G33S", to: "F23", arrLabel: "arr 9 St", gapMin: 15 },
+        { el: "boardRBack", title: "4 Av–9 St", dir: "→ 53 St", route: "R", feed: "nqrw",
+          from: "R33S", to: "R40", arrLabel: "arr 53 St", gapMin: 15 }
+      ];
+
+      // ── minimal GTFS-Realtime protobuf decoder ───────────────
+      function readVarint(bytes, pos) {
+        var result = 0, shift = 0;
+        while (pos < bytes.length) {
+          var b = bytes[pos] || 0;
+          pos += 1;
+          result += (b & 0x7f) * Math.pow(2, shift);
+          shift += 7;
+          if (!(b & 0x80)) break;
+        }
+        return [result, pos];
+      }
+
+      function parseFields(bytes, start, end) {
+        var fields = [];
+        var pos = start;
+        while (pos < end) {
+          var tag = readVarint(bytes, pos);
+          pos = tag[1];
+          var num = Math.floor(tag[0] / 8);
+          var wire = tag[0] % 8;
+          if (wire === 0) {
+            var v = readVarint(bytes, pos);
+            pos = v[1];
+            fields.push({ num: num, wire: wire, value: v[0] });
+          } else if (wire === 2) {
+            var len = readVarint(bytes, pos);
+            pos = len[1];
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + len[0]) });
+            pos += len[0];
+          } else if (wire === 1) {
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + 8) });
+            pos += 8;
+          } else if (wire === 5) {
+            fields.push({ num: num, wire: wire, value: bytes.subarray(pos, pos + 4) });
+            pos += 4;
+          } else {
+            break;
+          }
+        }
+        return fields;
+      }
+
+      function ascii(bytes) {
+        var s = "";
+        for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i] || 0);
+        return s;
+      }
+
+      function asBytes(v) {
+        return v instanceof Uint8Array ? v : null;
+      }
+
+      // ── subway feed parsing ────────────────────────────────────
+      // Parse a whole feed into trips: { route, stops: [{stopId,
+      // time}], terminal (base stop id of the last stop) }.
+      function parseSubwayFeed(buf, wantedRoute) {
+        var bytes = new Uint8Array(buf);
+        var trips = [];
+        var feed = parseFields(bytes, 0, bytes.length);
+        for (var fi = 0; fi < feed.length; fi++) {
+          var entityBytes = asBytes(feed[fi].value);
+          if (feed[fi].num !== 2 || !entityBytes) continue; // FeedEntity
+          var entity = parseFields(entityBytes, 0, entityBytes.length);
+          for (var ei = 0; ei < entity.length; ei++) {
+            var tuBytes = asBytes(entity[ei].value);
+            if (entity[ei].num !== 3 || !tuBytes) continue; // TripUpdate
+            var tu = parseFields(tuBytes, 0, tuBytes.length);
+            var routeId = "";
+            var stus = [];
+            for (var ti = 0; ti < tu.length; ti++) {
+              var tfBytes = asBytes(tu[ti].value);
+              if (!tfBytes) continue;
+              if (tu[ti].num === 1) {
+                var trip = parseFields(tfBytes, 0, tfBytes.length);
+                for (var pi = 0; pi < trip.length; pi++) {
+                  var pfBytes = asBytes(trip[pi].value);
+                  if (trip[pi].num === 5 && pfBytes) routeId = ascii(pfBytes);
+                }
+              } else if (tu[ti].num === 2) {
+                stus.push(tfBytes); // StopTimeUpdate
+              }
+            }
+            if (routeId !== wantedRoute) continue;
+
+            var stops = [];
+            for (var si = 0; si < stus.length; si++) {
+              var stu = parseFields(stus[si], 0, stus[si].length);
+              var stopId = "", arr = null, dep = null;
+              for (var sfi = 0; sfi < stu.length; sfi++) {
+                var sfBytes = asBytes(stu[sfi].value);
+                if (stu[sfi].num === 4 && sfBytes) stopId = ascii(sfBytes);
+                if ((stu[sfi].num === 2 || stu[sfi].num === 3) && sfBytes) {
+                  var ev = parseFields(sfBytes, 0, sfBytes.length);
+                  for (var vi = 0; vi < ev.length; vi++) {
+                    if (ev[vi].num === 2 && typeof ev[vi].value === "number") {
+                      if (stu[sfi].num === 2) arr = ev[vi].value;
+                      else dep = ev[vi].value;
+                    }
+                  }
+                }
+              }
+              var t = dep !== null ? dep : arr;
+              if (t && stopId) stops.push({ stopId: stopId, time: t, arr: arr });
+            }
+            if (!stops.length) continue;
+            var lastBase = stops[stops.length - 1].stopId.replace(/[NS]$/, "");
+            trips.push({ route: routeId, stops: stops, terminal: lastBase });
+          }
+        }
+        return trips;
+      }
+
+      // Trains departing `fromStop` (directional id) that later stop
+      // at `toBase` (either direction suffix).
+      function boardTrains(trips, board) {
+        var out = [];
+        for (var i = 0; i < trips.length; i++) {
+          var trip = trips[i];
+          var fi = -1, ti = -1;
+          for (var j = 0; j < trip.stops.length; j++) {
+            var s = trip.stops[j];
+            if (s.stopId === board.from) fi = j;
+            if (s.stopId.replace(/[NS]$/, "") === board.to && ti === -1 && fi !== -1) ti = j;
+          }
+          if (fi === -1 || ti === -1 || fi > ti) continue;
+          var toStop = trip.stops[ti];
+          out.push({
+            route: trip.route,
+            time: trip.stops[fi].time,
+            arrTo: toStop.arr !== null ? toStop.arr : toStop.time,
+            terminal: TERMINALS[trip.terminal] || "",
+            destIsTo: trip.terminal === board.to
+          });
+        }
+        return finalizeTrains(out);
+      }
+
+      function finalizeTrains(list) {
+        var nowSec = Date.now() / 1000;
+        var seen = {};
+        return list
+          .filter(function (x) { return x.time > nowSec - 30; })
+          .sort(function (a, b) { return a.time - b.time; })
+          .filter(function (x) {
+            if (seen[x.time]) return false;
+            seen[x.time] = true;
+            return true;
+          })
+          .slice(0, MAX_TRAINS);
+      }
+
+      // SubwayNow stop JSON → train list (mirror fallback). Shows
+      // the terminal only; no arrival-at-destination time.
+      function parseSubwayNowStop(json, dir, route) {
+        var trips =
+          (json && json.upcoming_trips && json.upcoming_trips[dir]) || [];
+        var list = [];
+        for (var i = 0; i < trips.length; i++) {
+          var t = trips[i];
+          if (t.route_id !== route) continue;
+          var time =
+            t.estimated_current_stop_arrival_time ||
+            t.current_stop_arrival_time;
+          if (!time) continue;
+          list.push({
+            route: t.route_id,
+            time: time,
+            arrTo: null,
+            terminal: TERMINALS[t.destination_stop] || "",
+            destIsTo: false
+          });
+        }
+        return finalizeTrains(list);
+      }
+
+      function loadBoardsFromSubwayNow() {
+        function get(url) {
+          return plainFetch(url, 15000).then(function (r) { return r.json(); });
+        }
+        return Promise.all([
+          get(SN_STOP_URLS.R40), get(SN_STOP_URLS.F23),
+          get(SN_STOP_URLS.G33), get(SN_STOP_URLS.R33)
+        ]).then(function (stops) {
+          return {
+            boardROut: parseSubwayNowStop(stops[0], "north", "R"),
+            boardGOut: parseSubwayNowStop(stops[1], "north", "G"),
+            boardGBack: parseSubwayNowStop(stops[2], "south", "G"),
+            boardRBack: parseSubwayNowStop(stops[3], "south", "R")
+          };
+        });
+      }
+
+      function loadFeed(url, route) {
+        function parse(buf) { return parseSubwayFeed(buf, route); }
+        function fromFetch() {
+          return fetchWithTimeout(url, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parse);
+        }
+        function fromPlainFetch() {
+          return plainFetch(url, 15000)
+            .then(function (res) { return res.arrayBuffer(); })
+            .then(parse);
+        }
+        function fromXhr() {
+          return xhrArrayBuffer(url, 15000).then(parse);
+        }
+        return fromFetch().catch(fromPlainFetch).catch(fromXhr);
+      }
+
+      // ── alerts ─────────────────────────────────────────────────
+      function cleanAlertText(s) {
+        return s.replace(/\[([A-Z0-9]+)\]/g, "$1").replace(/\s+/g, " ").trim();
+      }
+
+      function alertHeader(a) {
+        var translations = (a.header_text && a.header_text.translation) || [];
+        for (var k = 0; k < translations.length; k++) {
+          if (translations[k].language === "en") {
+            return translations[k].text ? cleanAlertText(translations[k].text) : "";
+          }
+        }
+        return "";
+      }
+
+      function alertActive(a, now) {
+        var periods = a.active_period || [];
+        return (
+          periods.length === 0 ||
+          periods.some(function (p) {
+            return (p.start || 0) <= now && now <= (p.end || 9999999999);
+          })
+        );
+      }
+
+      var OUR_STOPS = { R40: true, R33: true, F23: true, G33: true };
+      function parseAlerts(data) {
+        var now = Date.now() / 1000;
+        var out = [];
+        var entities = (data && data.entity) || [];
+        for (var i = 0; i < entities.length; i++) {
+          var a = entities[i].alert;
+          if (!a || !alertActive(a, now)) continue;
+          var ies = a.informed_entity || [];
+          var routes = {}, stops = {}, hasStop = false;
+          for (var j = 0; j < ies.length; j++) {
+            if (ies[j].route_id) routes[ies[j].route_id] = true;
+            if (ies[j].stop_id) { stops[ies[j].stop_id] = true; hasStop = true; }
+          }
+          if (!routes.R && !routes.G) continue;
+          if (hasStop) {
+            var hit = false;
+            for (var s in stops) if (OUR_STOPS[s]) hit = true;
+            if (!hit) continue;
+          }
+          var header = alertHeader(a);
+          if (header && out.indexOf(header) === -1) out.push(header);
+        }
+        return out.slice(0, 3);
+      }
+
+      function loadAlerts() {
+        return fetchWithTimeout(ALERTS_URL, 15000)
+          .then(function (res) { return res.json(); })
+          .then(parseAlerts)
+          .catch(function () {
+            return plainFetch(ALERTS_URL, 15000)
+              .then(function (res) { return res.json(); })
+              .then(parseAlerts);
+          })
+          .catch(function () { return null; });
+      }
+
+      // ── fetching helpers ───────────────────────────────────────
+      function fetchWithTimeout(url, ms) {
+        var ctrl = new AbortController();
+        var timer = setTimeout(function () { ctrl.abort(); }, ms);
+        return fetch(url, { signal: ctrl.signal, cache: "no-store" }).then(
+          function (res) {
+            clearTimeout(timer);
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res;
+          },
+          function (err) {
+            clearTimeout(timer);
+            throw err;
+          }
+        );
+      }
+
+      function withBuster(url) {
+        return url + (url.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now();
+      }
+
+      function plainFetch(url, ms) {
+        var timedOut = new Promise(function (_, reject) {
+          setTimeout(function () { reject(new Error("timeout")); }, ms);
+        });
+        return Promise.race([
+          fetch(withBuster(url)).then(function (res) {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res;
+          }),
+          timedOut
+        ]);
+      }
+
+      function xhrArrayBuffer(url, ms) {
+        return new Promise(function (resolve, reject) {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", withBuster(url), true);
+          xhr.responseType = "arraybuffer";
+          xhr.timeout = ms;
+          xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
+              resolve(xhr.response);
+            } else {
+              reject(new Error("HTTP " + xhr.status));
+            }
+          };
+          xhr.onerror = function () { reject(new Error("XHR failed")); };
+          xhr.ontimeout = function () { reject(new Error("XHR timeout")); };
+          xhr.send();
+        });
+      }
+
+      // ── rendering ──────────────────────────────────────────────
+      var clockFmt = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric", minute: "2-digit", timeZone: "America/New_York"
+      });
+      var stampFmt = new Intl.DateTimeFormat("en-US", {
+        hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York"
+      });
+
+      function clock(epochSec) {
+        return clockFmt.format(new Date(epochSec * 1000));
+      }
+
+      function minsLabel(epochSec, nowMs) {
+        var m = Math.round((epochSec * 1000 - nowMs) / 60000);
+        if (m <= 0) return "Now";
+        if (m === 1) return "1 min";
+        return m + " min";
+      }
+
+      // Hero countdown for the next train: under 2 minutes it ticks in
+      // m:ss so the wait feels live; above that it matches the rows.
+      function heroLabel(epochSec, nowMs) {
+        var sec = Math.round((epochSec * 1000 - nowMs) / 1000);
+        if (sec <= 0) return "Now";
+        if (sec < 120) {
+          var m = Math.floor(sec / 60);
+          var s = sec % 60;
+          return m + ":" + (s < 10 ? "0" : "") + s;
+        }
+        return minsLabel(epochSec, nowMs);
+      }
+
+      function el(tag, cls, text) {
+        var node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function gapAfter(trains, idx, gapMin) {
+        if (idx + 1 >= trains.length) return 0;
+        var g = Math.round((trains[idx + 1].time - trains[idx].time) / 60);
+        return g >= gapMin ? g : 0;
+      }
+
+      // Shared board shell: header, hero countdown, later rows, and
+      // gap warnings. subText(t) builds the per-train detail line.
+      function renderBoardShell(board, trains, error, nowMs, headNode, subText) {
+        var root = document.getElementById(board.el);
+        root.innerHTML = "";
+
+        var head = el("div", "board-head");
+        head.appendChild(headNode);
+        var h2 = el("h2", null, board.title);
+        h2.appendChild(el("span", "dir", board.dir));
+        head.appendChild(h2);
+        root.appendChild(head);
+
+        if (error) {
+          root.appendChild(el("p", "board-msg", error));
+          return;
+        }
+        if (!trains.length) {
+          root.appendChild(el("p", "board-msg", "No trains scheduled"));
+          return;
+        }
+
+        var first = trains[0];
+        var next = el("div", "next");
+        var mins = el("span", "mins mono", heroLabel(first.time, nowMs));
+        mins.dataset.time = first.time;
+        mins.dataset.hero = "1";
+        next.appendChild(mins);
+        next.appendChild(el("span", "clock mono", clock(first.time)));
+        root.appendChild(next);
+        var firstSub = subText(first);
+        if (firstSub.text || firstSub.ztag) {
+          var sub = el("div", "next-sub");
+          if (firstSub.text) sub.appendChild(el("span", "term", firstSub.text));
+          if (firstSub.ztag) sub.appendChild(el("span", "ztag", firstSub.ztag));
+          root.appendChild(sub);
+        }
+
+        var gap0 = gapAfter(trains, 0, board.gapMin);
+        if (gap0) {
+          root.appendChild(el("p", "gap-note-standalone",
+            "⚠ Then a " + gap0 + " min gap — don't miss this one"));
+        }
+
+        if (trains.length > 1) {
+          var ul = el("ul", "later mono");
+          for (var i = 1; i < trains.length; i++) {
+            var t = trains[i];
+            var li = document.createElement("li");
+            var rowMins = el("span", "mins", minsLabel(t.time, nowMs));
+            rowMins.dataset.time = t.time;
+            li.appendChild(rowMins);
+            li.appendChild(el("span", "clock", clock(t.time)));
+            var rowSub = subText(t);
+            if (rowSub.text) li.appendChild(el("span", "term", rowSub.text));
+            if (rowSub.ztag) li.appendChild(el("span", "ztag", rowSub.ztag));
+            ul.appendChild(li);
+            var g = gapAfter(trains, i, board.gapMin);
+            if (g) {
+              ul.appendChild(el("li", "gap-note",
+                "⚠ Then a " + g + " min gap — don't miss this one"));
+            }
+          }
+          root.appendChild(ul);
+        }
+      }
+
+      function renderBoard(board, trains, error, nowMs) {
+        var bullet = el("span", "bullet " + (board.route === "R" ? "r" : "g"), board.route);
+        bullet.setAttribute("aria-hidden", "true");
+        renderBoardShell(board, trains, error, nowMs, bullet, function (t) {
+          var parts = [];
+          if (t.arrTo) parts.push(board.arrLabel + " " + clock(t.arrTo));
+          if (t.terminal && !t.destIsTo) parts.push("to " + t.terminal);
+          return { text: parts.join(" · "), ztag: "" };
+        });
+      }
+
+      // Per-second countdown tick: update only the countdown labels,
+      // using the departure times stamped on them at render time.
+      function tick() {
+        if (!state.data) return;
+        var nowMs = Date.now();
+        var nodes = document.querySelectorAll(".mins[data-time]");
+        for (var i = 0; i < nodes.length; i++) {
+          var t = Number(nodes[i].dataset.time);
+          nodes[i].textContent = nodes[i].dataset.hero
+            ? heroLabel(t, nowMs)
+            : minsLabel(t, nowMs);
+        }
+      }
+
+      // ── state + refresh loop ───────────────────────────────────
+      var state = {
+        data: null,       // { boardROut: [], boardGOut: [], boardGBack: [], boardRBack: [], alerts }
+        rError: null,
+        gError: null,
+        fetchedAt: 0,
+        fetching: false,
+        failed: false     // both feeds failed with nothing to show
+      };
+
+      var statusDot = document.getElementById("statusDot");
+      var statusText = document.getElementById("statusText");
+      var loadingMsg = document.getElementById("loadingMsg");
+      var errorBox = document.getElementById("errorBox");
+      var content = document.getElementById("content");
+      var alertsBox = document.getElementById("alertsBox");
+      var refreshBtn = document.getElementById("refreshBtn");
+
+      function render() {
+        var nowMs = Date.now();
+
+        if (!state.data && !state.failed) {
+          loadingMsg.hidden = false;
+          errorBox.hidden = true;
+          content.hidden = true;
+          statusDot.className = "dot";
+          statusText.textContent = "Loading live times…";
+          return;
+        }
+        if (!state.data && state.failed) {
+          loadingMsg.hidden = true;
+          errorBox.hidden = false;
+          content.hidden = true;
+          statusDot.className = "dot bad";
+          statusText.textContent = "Feed unavailable";
+          return;
+        }
+
+        loadingMsg.hidden = true;
+        errorBox.hidden = true;
+        content.hidden = false;
+        var anyError = state.rError || state.gError;
+        statusDot.className = "dot " + (anyError ? "bad" : "ok");
+        statusText.textContent = anyError
+          ? "A feed is unavailable — showing last times from " + stampFmt.format(new Date(state.fetchedAt))
+          : "Updated " + stampFmt.format(new Date(state.fetchedAt));
+
+        var alerts = state.data.alerts || [];
+        alertsBox.innerHTML = "";
+        if (alerts.length) {
+          alertsBox.hidden = false;
+          for (var i = 0; i < alerts.length; i++) {
+            alertsBox.appendChild(el("p", null, "⚠ " + alerts[i]));
+          }
+        } else {
+          alertsBox.hidden = true;
+        }
+
+        renderBoard(BOARDS[0], state.data.boardROut, state.rError, nowMs);
+        renderBoard(BOARDS[1], state.data.boardGOut, state.gError, nowMs);
+        renderBoard(BOARDS[2], state.data.boardGBack, state.gError, nowMs);
+        renderBoard(BOARDS[3], state.data.boardRBack, state.rError, nowMs);
+      }
+
+      function load() {
+        if (state.fetching) return;
+        state.fetching = true;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "Refreshing…";
+
+        var rDone = loadFeed(NQRW_FEED_URL, "R")
+          .then(function (trips) { return { ok: true, trips: trips }; })
+          .catch(function () { return { ok: false, trips: null }; });
+        var gDone = loadFeed(G_FEED_URL, "G")
+          .then(function (trips) { return { ok: true, trips: trips }; })
+          .catch(function () { return { ok: false, trips: null }; });
+        var alertsDone = loadAlerts();
+
+        Promise.all([rDone, gDone, alertsDone]).then(function (results) {
+          var r = results[0], g = results[1];
+          state.fetching = false;
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "Refresh";
+
+          if (r.ok || g.ok) {
+            var prev = state.data || { boardROut: [], boardGOut: [], boardGBack: [], boardRBack: [], alerts: [] };
+            state.data = {
+              boardROut: r.ok ? boardTrains(r.trips, BOARDS[0]) : prev.boardROut,
+              boardGOut: g.ok ? boardTrains(g.trips, BOARDS[1]) : prev.boardGOut,
+              boardGBack: g.ok ? boardTrains(g.trips, BOARDS[2]) : prev.boardGBack,
+              boardRBack: r.ok ? boardTrains(r.trips, BOARDS[3]) : prev.boardRBack,
+              alerts: results[2] !== null ? results[2] : prev.alerts
+            };
+            state.rError = r.ok ? null : "Couldn't reach the R feed.";
+            state.gError = g.ok ? null : "Couldn't reach the G feed.";
+            state.fetchedAt = Date.now();
+            state.failed = false;
+            render();
+          } else {
+            // Both protobuf feeds failed — try the JSON mirror once.
+            loadBoardsFromSubwayNow().then(function (boards) {
+              state.data = {
+                boardROut: boards.boardROut,
+                boardGOut: boards.boardGOut,
+                boardGBack: boards.boardGBack,
+                boardRBack: boards.boardRBack,
+                alerts: results[2] !== null ? results[2] : []
+              };
+              state.rError = null;
+              state.gError = null;
+              state.fetchedAt = Date.now();
+              state.failed = false;
+              render();
+            }).catch(function () {
+              if (state.data) {
+                state.rError = "Couldn't reach the R feed.";
+                state.gError = "Couldn't reach the G feed.";
+              } else {
+                state.failed = true;
+              }
+              render();
+            });
+          }
+        });
+      }
+
+      refreshBtn.addEventListener("click", load);
+      document.getElementById("retryBtn").addEventListener("click", load);
+
+      // Countdown labels tick every second; a full re-render every 15s
+      // prunes trains that have left; feeds reload every 30s while open.
+      setInterval(tick, 1000);
+      setInterval(render, 15000);
+      setInterval(function () {
+        if (!document.hidden) load();
+      }, 30000);
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) load();
+      });
+
+      load();
+    </script>
+  </body>
+</html>
